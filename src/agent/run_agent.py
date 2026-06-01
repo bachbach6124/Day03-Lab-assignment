@@ -44,12 +44,15 @@ class ScriptedRetailReActProvider(LLMProvider):
 
     def _next_response(self, prompt: str) -> str:
         if "Observation:" not in prompt:
-            return self._order_action(prompt)
+            return self._policy_search_action(prompt)
 
         observations = self._observations(prompt)
         last_observation = observations[-1] if observations else {}
 
         if last_observation.get("error") == "PARSER_ERROR":
+            return self._policy_search_action(prompt)
+
+        if "matches" in last_observation and "query" in last_observation:
             return self._order_action(prompt)
 
         if "order_id" in last_observation or "policy_valid" in last_observation:
@@ -87,6 +90,13 @@ class ScriptedRetailReActProvider(LLMProvider):
             "Bạn vui lòng cung cấp thêm mã đơn hàng hoặc số điện thoại đặt hàng ạ."
         )
 
+    def _policy_search_action(self, prompt: str) -> str:
+        query = self._policy_query(prompt)
+        return (
+            "Thought: Cần tra cứu chính sách đổi trả liên quan trước khi kiểm tra đơn hàng.\n"
+            f'Action: search_policy_docs({{"query": "{query}", "top_k": 2}})'
+        )
+
     def _order_action(self, prompt: str) -> str:
         product_id = self._product_id(prompt)
         customer_id = self._customer_id(prompt)
@@ -94,6 +104,15 @@ class ScriptedRetailReActProvider(LLMProvider):
             "Thought: Cần kiểm tra đơn hàng và điều kiện đổi trả trước.\n"
             f'Action: check_order_status({{"customer_id": "{customer_id}", "product_id": "{product_id}"}})'
         )
+
+    def _policy_query(self, prompt: str) -> str:
+        if re.search(r"sale|AT999|final", prompt, re.IGNORECASE):
+            return "final sale exchange policy"
+        if re.search(r"còn hàng|hết hàng|stock|kho|AT104", prompt, re.IGNORECASE):
+            return "stock required before exchange ticket"
+        if re.search(r"AT404|không tìm thấy|mã đơn", prompt, re.IGNORECASE):
+            return "missing order information exchange policy"
+        return "7-day size exchange policy"
 
     def _policy_final_answer(self, observation: dict) -> str:
         reason = observation.get("reason", "đơn hàng không đủ điều kiện đổi trả")

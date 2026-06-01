@@ -17,7 +17,8 @@ Trong lab này, phần đóng góp kỹ thuật tập trung vào việc biến m
 | :--- | :--- |
 | `src/agent/agent.py` | Triển khai/củng cố ReAct loop: nhận output từ LLM, parse `Action`, gọi tool, append `Observation`, dừng khi có `Final Answer` hoặc vượt `max_steps`. |
 | `src/agent/prompts.py` | Xây dựng prompt cho Agent v1 và v2. v2 thêm guardrails: chỉ tạo ticket sau khi policy và stock đã được xác nhận. |
-| `src/tools/retail_tools.py` | Xây dựng bộ tool nghiệp vụ: kiểm tra order/policy, kiểm tra tồn kho, tạo ticket đổi hàng. |
+| `src/tools/retail_tools.py` | Xây dựng bộ tool nghiệp vụ và search tool: search policy docs, kiểm tra order/policy, kiểm tra tồn kho, tạo ticket đổi hàng. |
+| `src/tools/mock_data/policy_docs.json` | Thêm policy corpus cục bộ để agent có thể dùng `search_policy_docs` như một RAG-lite search tool. |
 | `src/evaluate.py` | Cải thiện evaluation để đo đúng hành vi agent: outcome match, expected tools, missing tools, tool sequence, failure type. |
 | `src/analyze_logs.py` | Tổng hợp metrics từ JSONL logs: success rate, latency, token count, estimated cost, loop count, parser/tool/timeout errors. |
 | `tests/test_retail_workflow.py` | Bổ sung test cho retail workflow, parser/action behavior, TC03 out-of-stock, expected tool verification và agent history. |
@@ -29,6 +30,7 @@ Hệ thống được tách theo các module rõ ràng:
 
 - Agent loop không hard-code logic nghiệp vụ; nó gọi tool thông qua registry.
 - Retail tools nằm riêng trong `src/tools/retail_tools.py`.
+- `search_policy_docs` giúp agent retrieve policy context trước khi kiểm tra order và tạo ticket.
 - LLM providers được tách qua interface `LLMProvider`, hỗ trợ OpenAI, Gemini, local model và scripted offline provider.
 - Evaluation và log analysis tách khỏi UI, giúp chạy test tự động.
 - Telemetry ghi lại token, cost estimate, latency, loop count, parser errors, tool errors và timeout errors.
@@ -46,7 +48,7 @@ python3 -m src.analyze_logs
 Kết quả test:
 
 ```text
-9 passed, 24 warnings
+10 passed, 32 warnings
 ```
 
 Kết quả evaluation:
@@ -54,8 +56,8 @@ Kết quả evaluation:
 | System | Success Rate | Avg Latency | Total Tokens | Est. Cost | Avg Loop | Parser / Tool / Timeout Errors |
 | :--- | ---: | ---: | ---: | ---: | ---: | :--- |
 | Chatbot baseline | 0.0% | 0.0ms | 327 | $0.003270 | 1.00 | 0 / 0 / 0 |
-| Agent v1 | 100.0% | 0.8ms | 4133 | $0.041330 | 2.60 | 0 / 0 / 0 |
-| Agent v2 | 100.0% | 0.2ms | 5504 | $0.055040 | 2.60 | 0 / 0 / 0 |
+| Agent v1 | 100.0% | 1.0ms | 7409 | $0.074090 | 3.60 | 0 / 0 / 0 |
+| Agent v2 | 100.0% | 0.2ms | 9624 | $0.096240 | 3.60 | 0 / 0 / 0 |
 
 ### 4. Scoring Alignment
 
@@ -97,8 +99,8 @@ Evaluation log cho TC03 của Agent v2 có dạng:
   "expected_success": false,
   "predicted_success": false,
   "success": true,
-  "tools_used": ["check_order_status", "check_warehouse_stock"],
-  "expected_tools": ["check_order_status", "check_warehouse_stock"],
+  "tools_used": ["search_policy_docs", "check_order_status", "check_warehouse_stock"],
+  "expected_tools": ["search_policy_docs", "check_order_status", "check_warehouse_stock"],
   "missing_expected_tools": [],
   "tool_sequence_ok": true,
   "outcome_matches": true
@@ -108,6 +110,9 @@ Evaluation log cho TC03 của Agent v2 có dạng:
 Trace quan trọng:
 
 ```text
+Action: search_policy_docs({"query": "stock required before exchange ticket", "top_k": 2})
+Observation: {"matches": [{"id": "POLICY_STOCK_REQUIRED"}]}
+
 Action: check_order_status({"customer_id": "USER_48291", "product_id": "AT104"})
 Observation: {"policy_valid": true, "reason": "Within 7-day exchange window"}
 
@@ -138,6 +143,7 @@ Các thay đổi/cải tiến đã được thực hiện:
 
 - TC03 được thiết kế lại để dùng `AT104`: đơn hợp lệ, trong 7 ngày, nhưng size L hết hàng.
 - `warehouse_stock.json` có record cho `AT104`, size `L`, quantity `0`.
+- Thêm `policy_docs.json` và `search_policy_docs` để agent retrieve policy context trước khi đi vào workflow.
 - `assess_case_result` trong `src/evaluate.py` kiểm tra:
   - `outcome_matches`,
   - `missing_expected_tools`,
@@ -155,6 +161,7 @@ Các thay đổi/cải tiến đã được thực hiện:
 Agent v1 và v2 đều pass TC03 đúng nghĩa:
 
 - gọi `check_order_status`,
+- trước đó gọi `search_policy_docs` để lấy policy stock/exchange liên quan,
 - thấy policy hợp lệ,
 - gọi `check_warehouse_stock`,
 - thấy size L hết hàng,
@@ -216,7 +223,7 @@ Vì vậy evaluation phải đo cả:
 
 ### 4. Trade-off: Safety vs Cost
 
-Agent v2 dùng 5504 tokens, cao hơn v1 với 4133 tokens. Lý do là prompt v2 có nhiều guardrails hơn. Trên bộ 5 test cases, cả hai đều đạt 100%, nên không nên nói v2 "tăng accuracy". Cách nói đúng hơn là:
+Agent v2 dùng 9624 tokens, cao hơn v1 với 7409 tokens. Lý do là prompt v2 có nhiều guardrails hơn, và cả hai agent giờ đều thêm bước `search_policy_docs` trước workflow chính. Trên bộ 5 test cases, cả hai đều đạt 100%, nên không nên nói v2 "tăng accuracy". Cách nói đúng hơn là:
 
 - v2 tăng độ kỷ luật khi gọi tool,
 - v2 giảm rủi ro tạo ticket khi chưa đủ observation,
@@ -271,7 +278,6 @@ Một orchestrator hoặc state machine như LangGraph có thể điều phối 
 
 | Missing / Weak Item | Impact | Suggested Fix |
 | :--- | :--- | :--- |
-| Student ID đang để placeholder. | Thiếu metadata nộp bài. | Bổ sung mã sinh viên thật. |
 | Contribution ownership chưa có commit evidence. | Nếu giảng viên yêu cầu accountability theo Git, report chưa chứng minh bằng commit hash. | Bổ sung commit IDs hoặc PR link nếu có. |
 | Offline latency không đại diện production latency. | Metrics latency hiện chứng minh logging, chưa chứng minh performance với API thật. | Chạy thêm một evaluation bằng OpenAI/Gemini/local model nếu có key/model. |
 | Live demo evidence không có trong individual report. | Có thể ảnh hưởng bonus nếu cần chứng minh demo. | Bổ sung screenshot/demo note nếu đã demo với instructor. |

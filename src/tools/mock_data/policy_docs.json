@@ -1,0 +1,26 @@
+[
+  {
+    "id": "POLICY_7_DAY_EXCHANGE",
+    "title": "7-day exchange window",
+    "keywords": ["exchange", "return", "7 days", "size", "đổi size", "đổi trả"],
+    "content": "Khách được đổi size trong vòng 7 ngày kể từ ngày nhận hàng nếu đơn đã giao thành công và sản phẩm không thuộc nhóm final sale."
+  },
+  {
+    "id": "POLICY_FINAL_SALE",
+    "title": "Final sale restriction",
+    "keywords": ["final sale", "sale", "discount", "khuyến mãi", "không đổi trả"],
+    "content": "Sản phẩm final sale hoặc được đánh dấu không đổi trả sẽ không hỗ trợ đổi size, trừ trường hợp lỗi từ nhà sản xuất."
+  },
+  {
+    "id": "POLICY_STOCK_REQUIRED",
+    "title": "Stock required before exchange ticket",
+    "keywords": ["stock", "warehouse", "inventory", "tồn kho", "còn hàng", "hết hàng"],
+    "content": "Chỉ tạo phiếu đổi size sau khi xác nhận size khách muốn đổi còn hàng trong kho."
+  },
+  {
+    "id": "POLICY_MISSING_ORDER",
+    "title": "Missing order information",
+    "keywords": ["order", "order not found", "mã đơn", "không tìm thấy đơn"],
+    "content": "Nếu không tìm thấy đơn hàng, nhân viên cần xin thêm mã đơn hoặc số điện thoại đặt hàng trước khi xử lý đổi trả."
+  }
+]

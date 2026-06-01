@@ -1,4 +1,5 @@
 import json
+import re
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,59 @@ def save_json(file_name: str, data: Any) -> None:
         json.dump(data, file, ensure_ascii=False, indent=2)
         file.write("\n")
     temp_path.replace(path)
+
+
+def search_policy_docs(args: dict) -> dict:
+    query = (args.get("query") or "").strip()
+    top_k = int(args.get("top_k", 2))
+
+    if not query:
+        return {
+            "query": query,
+            "matches": [],
+            "reason": "query is required",
+        }
+
+    docs = load_json("policy_docs.json")
+    query_terms = _tokenize(query)
+    scored_docs = []
+
+    for doc in docs:
+        haystack = " ".join(
+            [
+                doc.get("title", ""),
+                doc.get("content", ""),
+                " ".join(doc.get("keywords", [])),
+            ]
+        )
+        haystack_terms = _tokenize(haystack)
+        score = sum(1 for term in query_terms if term in haystack_terms)
+        query_lower = query.lower()
+        for keyword in doc.get("keywords", []):
+            if keyword.lower() in query_lower:
+                score += 3
+        if score:
+            scored_docs.append((score, doc))
+
+    scored_docs.sort(key=lambda item: (-item[0], item[1].get("id", "")))
+    matches = [
+        {
+            "id": doc.get("id"),
+            "title": doc.get("title"),
+            "content": doc.get("content"),
+            "score": score,
+        }
+        for score, doc in scored_docs[:top_k]
+    ]
+
+    return {
+        "query": query,
+        "matches": matches,
+    }
+
+
+def _tokenize(text: str) -> set[str]:
+    return set(re.findall(r"[\wÀ-ỹ]+", text.lower()))
 
 
 def check_order_status(args: dict) -> dict:
@@ -196,6 +250,11 @@ def create_return_ticket(args: dict) -> dict:
 
 
 TOOLS = [
+    {
+        "name": "search_policy_docs",
+        "description": "Search local return/exchange policy documents before deciding the workflow. Input JSON: query, optional top_k.",
+        "func": search_policy_docs,
+    },
     {
         "name": "check_order_status",
         "description": "Check whether a customer's order is eligible for return or exchange. Input JSON: customer_id, product_id.",

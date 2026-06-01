@@ -22,6 +22,7 @@ Rules:
 - The Action arguments must be a valid JSON object inside parentheses.
 - Do not invent order status, stock, ticket IDs, delivery dates, or policy results.
 - Use Observation results from previous steps before deciding the next step.
+- For exchange/return requests, search_policy_docs should be used first to retrieve the relevant policy context.
 - For this lab demo, if the customer_id is missing, use "USER_48291" as the known demo customer_id.
 - If an order is eligible and stock is available, create an exchange ticket before the final answer.
 - If the request is not eligible, stock is unavailable, or data is missing, explain that clearly and politely.
@@ -33,6 +34,7 @@ Rules:
 {base_prompt}
 
 Agent v2 guardrails:
+- Before check_order_status, use search_policy_docs once for policy context unless policy context is already present in the trace.
 - Before create_return_ticket, you must have observed policy_valid=true from check_order_status.
 - Before create_return_ticket, you must have observed status="available" from check_warehouse_stock.
 - If policy_valid=false, stop tool calling and produce Final Answer with the policy reason.

@@ -2,7 +2,12 @@ from src.agent.agent import ReActAgent
 from src.agent.run_agent import build_agent
 from src.core.llm_provider import LLMProvider
 from src.evaluate import assess_case_result, run_agent_case
-from src.tools.retail_tools import check_order_status, check_warehouse_stock, load_json
+from src.tools.retail_tools import (
+    check_order_status,
+    check_warehouse_stock,
+    load_json,
+    search_policy_docs,
+)
 
 
 class DummyProvider(LLMProvider):
@@ -36,6 +41,13 @@ def test_check_warehouse_stock_reports_out_of_stock_size_l():
 
     assert result["status"] == "out_of_stock"
     assert result["stock_quantity"] == 0
+
+
+def test_search_policy_docs_finds_relevant_policy_docs():
+    result = search_policy_docs({"query": "final sale exchange policy", "top_k": 1})
+
+    assert result["matches"]
+    assert result["matches"][0]["id"] == "POLICY_FINAL_SALE"
 
 
 def test_parse_action_accepts_json_object_inside_code_fence():
@@ -74,7 +86,7 @@ def test_tc03_mock_data_represents_valid_order_with_size_l_out_of_stock():
 def test_evaluation_fails_tc03_when_stock_check_is_missing():
     case = next(case for case in load_json("test_cases.json") if case["case_id"] == "TC03")
 
-    assessment = assess_case_result(case, ["check_order_status"])
+    assessment = assess_case_result(case, ["search_policy_docs", "check_order_status"])
 
     assert assessment["outcome_matches"] is True
     assert assessment["success"] is False
@@ -88,7 +100,11 @@ def test_scripted_agent_handles_tc03_with_stock_check_and_no_ticket():
 
     assert result["success"] is True
     assert result["predicted_success"] is False
-    assert result["tools_used"] == ["check_order_status", "check_warehouse_stock"]
+    assert result["tools_used"] == [
+        "search_policy_docs",
+        "check_order_status",
+        "check_warehouse_stock",
+    ]
     assert result["failure_type"] is None
 
 

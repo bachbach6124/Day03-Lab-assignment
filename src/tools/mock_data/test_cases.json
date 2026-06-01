@@ -9,6 +9,7 @@
     "expected_behavior": "Tạo ticket đổi hàng thành công.",
     "expected_success": true,
     "expected_tools": [
+      "search_policy_docs",
       "check_order_status",
       "check_warehouse_stock",
       "create_return_ticket"
@@ -24,6 +25,7 @@
     "expected_behavior": "Từ chối đổi trả lịch sự vì quá hạn 7 ngày.",
     "expected_success": false,
     "expected_tools": [
+      "search_policy_docs",
       "check_order_status"
     ]
   },
@@ -37,6 +39,7 @@
     "expected_behavior": "Báo hết hàng size L và đề xuất chờ/restock.",
     "expected_success": false,
     "expected_tools": [
+      "search_policy_docs",
       "check_order_status",
       "check_warehouse_stock"
     ]
@@ -51,6 +54,7 @@
     "expected_behavior": "Không tìm thấy đơn hàng, xin thêm thông tin.",
     "expected_success": false,
     "expected_tools": [
+      "search_policy_docs",
       "check_order_status"
     ]
   },
@@ -64,6 +68,7 @@
     "expected_behavior": "Từ chối vì sản phẩm không đủ điều kiện đổi trả.",
     "expected_success": false,
     "expected_tools": [
+      "search_policy_docs",
       "check_order_status"
     ]
   }

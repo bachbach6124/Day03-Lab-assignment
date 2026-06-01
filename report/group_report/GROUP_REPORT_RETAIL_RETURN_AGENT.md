@@ -1,6 +1,6 @@
 # Group Report: Lab 3 - Retail Return ReAct Agent
 
-- **Team Name**: 087
+- **Team Name**: Team 6 Zone B
 - **Team Members**: Đào Xuân Bách (2A202600640), Nguyễn Công Thành (2A202600696)
 - **Deployment / Evaluation Date**: 2026-06-01
 - **Domain**: Fashion retail size exchange / return support
@@ -19,12 +19,12 @@ Kết quả offline evaluation ngày 2026-06-01:
 | System | Passed / Total | Success Rate | Avg Latency | Total Tokens | Est. Cost | Avg Loop | Parser / Tool / Timeout Errors |
 | :--- | ---: | ---: | ---: | ---: | ---: | ---: | :--- |
 | Chatbot baseline | 0 / 5 | 0.0% | 0.0ms | 327 | $0.003270 | 1.00 | 0 / 0 / 0 |
-| Agent v1 | 5 / 5 | 100.0% | 0.8ms | 4133 | $0.041330 | 2.60 | 0 / 0 / 0 |
-| Agent v2 | 5 / 5 | 100.0% | 0.2ms | 5504 | $0.055040 | 2.60 | 0 / 0 / 0 |
+| Agent v1 | 5 / 5 | 100.0% | 1.0ms | 7409 | $0.074090 | 3.60 | 0 / 0 / 0 |
+| Agent v2 | 5 / 5 | 100.0% | 0.2ms | 9624 | $0.096240 | 3.60 | 0 / 0 / 0 |
 
 **Main finding**: Chatbot baseline có câu trả lời thân thiện nhưng không thể chứng minh nghiệp vụ vì không gọi được tool. ReAct Agent đạt 100% trên 5 test cases vì mỗi quyết định quan trọng đều được kiểm chứng bằng `Observation` từ tool.
 
-**Important trade-off**: Agent v2 không tăng success rate so với v1 trên bộ test nhỏ vì v1 đã đạt 100%, nhưng v2 tốt hơn về guardrail: không tạo ticket nếu chưa có `policy_valid=true` và stock `available`. Đổi lại, v2 dùng nhiều token hơn v1.
+**Important trade-off**: Agent v2 không tăng success rate so với v1 trên bộ test nhỏ vì v1 đã đạt 100%, nhưng v2 tốt hơn về guardrail: không tạo ticket nếu chưa có policy context, `policy_valid=true` và stock `available`. Đổi lại, v2 dùng nhiều token hơn v1.
 
 ---
 
@@ -33,7 +33,7 @@ Kết quả offline evaluation ngày 2026-06-01:
 | Scoring Category | Evidence in Submission | Status |
 | :--- | :--- | :--- |
 | Chatbot Baseline | `src/chatbot.py`, evaluation logs `logs/chatbot_baseline.jsonl`, 0/5 result explained. | Covered |
-| Agent v1 Working | `src/agent/agent.py`, `src/agent/prompts.py`, `ScriptedRetailReActProvider`, 3 retail tools. | Covered |
+| Agent v1 Working | `src/agent/agent.py`, `src/agent/prompts.py`, `ScriptedRetailReActProvider`, 4 retail/search tools. | Covered |
 | Agent v2 Improved | v2 prompt adds explicit safety rules before ticket creation. | Covered |
 | Tool Design Evolution | Tools documented from policy check -> stock check -> ticket creation. | Covered |
 | Trace Quality | Successful trace TC01 and failure/negative trace TC03 included below. | Covered |
@@ -44,7 +44,7 @@ Kết quả offline evaluation ngày 2026-06-01:
 | Bonus: Failure Handling | `max_steps`, parser error logging, tool error logging, v2 guardrails. | Covered |
 | Bonus: Ablation | v1 vs v2 prompt comparison and chatbot vs agent comparison. | Covered |
 | Bonus: Live Demo | Streamlit app exists, but live demo completion cannot be proven from repository files. | Missing proof |
-| Bonus: Extra Tools | No browsing/search/external advanced tool beyond retail workflow tools. | Not covered |
+| Bonus: Extra Tools | Added local RAG-lite search tool `search_policy_docs` over `policy_docs.json`. | Covered |
 
 ---
 
@@ -59,6 +59,7 @@ Kết quả offline evaluation ngày 2026-06-01:
 | Agent prompts | `src/agent/prompts.py` | Defines ReAct format and v1/v2 behavior. |
 | Provider layer | `src/core/*.py`, `src/agent/run_agent.py` | Supports OpenAI, Gemini, local model, and offline scripted provider. |
 | Retail tools | `src/tools/retail_tools.py` | Checks order policy, checks warehouse stock, creates return/exchange ticket. |
+| Policy docs | `src/tools/mock_data/policy_docs.json` | Provides local searchable return/exchange policy context. |
 | Telemetry | `src/telemetry/*.py`, `logs/` | Captures events, token usage, latency, loop count, cost, and error codes. |
 | Evaluation | `src/evaluate.py`, `src/analyze_logs.py` | Runs test cases and aggregates metrics. |
 | Demo UI | `streamlit_app.py` | Shows chatbot vs agent comparison, traces, metrics, and saved logs. |
@@ -96,7 +97,8 @@ flowchart TD
     B --> C[Direct text answer: no tool verification]
 
     A --> D[ReAct Agent]
-    D --> E[check_order_status]
+    D --> S[search_policy_docs]
+    S --> E[check_order_status]
     E --> F{Policy valid?}
     F -- No --> G[Final Answer: reject with reason]
     F -- Yes --> H[check_warehouse_stock]
@@ -122,10 +124,11 @@ Baseline chatbot only receives the user message and returns text. It is useful a
 
 ### Stage 2: Agent v1 with Retail Tools
 
-Agent v1 adds three concrete tools:
+Agent v1 adds four concrete tools:
 
 | Tool | Input | Output / Purpose |
 | :--- | :--- | :--- |
+| `search_policy_docs` | `query`, optional `top_k` | Searches local return/exchange policy snippets before workflow decisions. |
 | `check_order_status` | `customer_id`, `product_id` | Returns order ID, delivery date, current size, `policy_valid`, and reason. |
 | `check_warehouse_stock` | `product_id`, `size` | Returns stock status, quantity, and warehouse. |
 | `create_return_ticket` | `order_id`, `action_type`, `detail` | Creates an exchange/return ticket and returns ticket information. |
@@ -134,6 +137,7 @@ Agent v1 adds three concrete tools:
 
 Agent v2 keeps the same tools but improves the prompt discipline:
 
+- must call `search_policy_docs` once before checking order status,
 - must call `check_order_status` before any ticket creation,
 - must stop if `policy_valid=false`,
 - must call `check_warehouse_stock` before exchange ticket creation,
@@ -174,17 +178,17 @@ This prevents "false pass" cases where a negative scenario passes only because n
 | System | Total Tokens | Estimated Cost | Interpretation |
 | :--- | ---: | ---: | :--- |
 | Chatbot baseline | 327 | $0.003270 | Cheapest, but unreliable for workflow tasks. |
-| Agent v1 | 4133 | $0.041330 | More expensive because it performs multi-step reasoning and tool calls. |
-| Agent v2 | 5504 | $0.055040 | Most expensive due to longer safety prompt, but strongest guardrail behavior. |
+| Agent v1 | 7409 | $0.074090 | More expensive because it performs policy search, multi-step reasoning and tool calls. |
+| Agent v2 | 9624 | $0.096240 | Most expensive due to longer safety prompt plus policy-search context, but strongest guardrail behavior. |
 
-Insight: Token cost increases substantially when moving from chatbot to ReAct Agent. This is acceptable only if the business task requires verified actions. For FAQ-only tasks, baseline may be enough; for exchange/refund workflows, tool-verified agent behavior is worth the extra cost.
+Insight: Token cost increases substantially when moving from chatbot to ReAct Agent, and increases again when the agent retrieves policy context. This is acceptable only if the business task requires verified actions. For FAQ-only tasks, baseline may be enough; for exchange/refund workflows, policy-search plus tool-verified behavior is worth the extra cost.
 
 ### 5.3 Latency
 
 | System | Average Latency |
 | :--- | ---: |
 | Chatbot baseline | 0.0ms |
-| Agent v1 | 0.8ms |
+| Agent v1 | 1.0ms |
 | Agent v2 | 0.2ms |
 
 These numbers come from the offline scripted provider, so they prove instrumentation works but do not represent real network LLM latency. In production, total duration would include all LLM calls plus tool execution time.
@@ -194,8 +198,8 @@ These numbers come from the offline scripted provider, so they prove instrumenta
 | System | Average Loop Count | Termination Quality |
 | :--- | ---: | :--- |
 | Chatbot baseline | 1.00 | Single response, no tool loop. |
-| Agent v1 | 2.60 | Terminates correctly on all 5 cases. |
-| Agent v2 | 2.60 | Same loop count with stricter stopping rules. |
+| Agent v1 | 3.60 | Terminates correctly on all 5 cases after policy search and workflow tools. |
+| Agent v2 | 3.60 | Same loop count with stricter stopping rules. |
 
 No timeout was observed. The agent also has `max_steps` protection to prevent endless loops.
 
@@ -214,47 +218,72 @@ The most important failure signal is `missing_expected_tools` for the baseline. 
 
 ## 6. Trace Quality
 
-### 6.1 Successful Trace: TC01 - Valid Size Exchange
+### 6.1 Failed Trace: TC01 - Baseline Chatbot Cannot Verify Tools
 
 **User intent**: Customer wants to exchange product `AT102` from size M to size L.
 
 Expected path:
 
 ```text
-check_order_status -> check_warehouse_stock -> create_return_ticket
+search_policy_docs -> check_order_status -> check_warehouse_stock -> create_return_ticket
+```
+
+Baseline trace:
+
+| Step | Behavior |
+| :--- | :--- |
+| 1 | Chatbot receives the customer question and produces a direct text response. |
+| Tool usage | `[]` |
+| Missing tools | `search_policy_docs`, `check_order_status`, `check_warehouse_stock`, `create_return_ticket` |
+| Failure type | `ticket_not_created` |
+
+Why this fails: The baseline can sound helpful, but it has no action loop. It cannot retrieve policy context, verify order eligibility, check warehouse stock, or create the ticket required for a valid exchange.
+
+### 6.2 Successful Trace: TC01 - Valid Size Exchange
+
+**User intent**: Customer wants to exchange product `AT102` from size M to size L.
+
+Expected path:
+
+```text
+search_policy_docs -> check_order_status -> check_warehouse_stock -> create_return_ticket
 ```
 
 Agent trace:
 
 | Step | Action / Observation |
 | :--- | :--- |
-| 1 | `check_order_status({"customer_id": "USER_48291", "product_id": "AT102"})` |
+| 1 | `search_policy_docs({"query": "7-day size exchange policy", "top_k": 2})` |
+| Observation | returns `POLICY_7_DAY_EXCHANGE` and `POLICY_STOCK_REQUIRED` |
+| 2 | `check_order_status({"customer_id": "USER_48291", "product_id": "AT102"})` |
 | Observation | `policy_valid=true`, order `DH-99214`, reason `Within 7-day exchange window` |
-| 2 | `check_warehouse_stock({"product_id": "AT102", "size": "L"})` |
+| 3 | `check_warehouse_stock({"product_id": "AT102", "size": "L"})` |
 | Observation | `status="available"`, `stock_quantity=14` |
-| 3 | `create_return_ticket({"order_id": "DH-99214", "action_type": "EXCHANGE", ...})` |
+| 4 | `create_return_ticket({"order_id": "DH-99214", "action_type": "EXCHANGE", ...})` |
 | Observation | ticket `TK-8831`, process time `2-3 ngày` |
 | Final | Agent confirms the exchange ticket and next steps. |
 
 Why this is correct: The agent creates a ticket only after both policy and stock are verified.
 
-### 6.2 Negative / Failure-Prevention Trace: TC03 - Out of Stock Size L
+### 6.3 Negative / Failure-Prevention Trace: TC03 - Out of Stock Size L
 
 **User intent**: Customer wants to exchange product `AT104` from size M to size L.
 
 Expected path:
 
 ```text
-check_order_status -> check_warehouse_stock
+search_policy_docs -> check_order_status -> check_warehouse_stock
 ```
 
 Agent trace:
 
 | Step | Action / Observation |
 | :--- | :--- |
-| 1 | `check_order_status({"customer_id": "USER_48291", "product_id": "AT104"})` |
+| 1 | `search_policy_docs({"query": "stock required before exchange ticket", "top_k": 2})` |
+| Observation | returns `POLICY_STOCK_REQUIRED` |
+| 2 | `check_order_status({"customer_id": "USER_48291", "product_id": "AT104"})` |
 | Observation | `policy_valid=true`, order `DH-66304`, reason `Within 7-day exchange window` |
-| 2 | `check_warehouse_stock({"product_id": "AT104", "size": "L"})` |
+| 3 | `check_warehouse_stock({"product_id": "AT104", "size": "L"})` |
 | Observation | `status="out_of_stock"`, `stock_quantity=0` |
 | Final | Agent says size L is unavailable and does not create a ticket. |
 
@@ -280,10 +309,17 @@ Conclusion: For this workflow, ReAct Agent is better because success depends on 
 
 | Version | Result | Strength | Weakness |
 | :--- | :--- | :--- | :--- |
-| Agent v1 | 5/5 pass, 4133 tokens | Shorter prompt and lower token cost. | Less explicit safety discipline in prompt. |
-| Agent v2 | 5/5 pass, 5504 tokens | Stronger guardrails before ticket creation. | Higher token cost. |
+| Agent v1 | 5/5 pass, 7409 tokens | Shorter prompt and lower token cost than v2. | Less explicit safety discipline in prompt. |
+| Agent v2 | 5/5 pass, 9624 tokens | Stronger guardrails before ticket creation. | Higher token cost. |
 
 Conclusion: v2 should be preferred for production-style workflows where a wrong ticket/refund action is more costly than extra tokens.
+
+### 7.3 Group Learning Points
+
+- Final-answer quality is not enough for workflow agents; the trace must prove that the system used the right tools in the right order.
+- Negative cases need stricter evaluation than positive cases because "not creating a ticket" can be correct for the wrong reason.
+- Adding `search_policy_docs` improves policy grounding and qualifies for the Extra Tools bonus, but it increases token count and loop count.
+- Agent v2 should be described as safer and more disciplined, not more accurate, because v1 and v2 both reach 100% on the current small test suite.
 
 ---
 
@@ -292,6 +328,7 @@ Conclusion: v2 should be preferred for production-style workflows where a wrong 
 The codebase is organized into clear modules:
 
 - `LLMProvider` abstraction supports OpenAI, Gemini, local, and offline scripted providers.
+- `search_policy_docs` provides a deterministic local search tool over return/exchange policy snippets.
 - Retail tools are isolated from the agent loop.
 - Evaluation logic is separated from the Streamlit UI.
 - Telemetry records LLM metrics, tool calls, observations, parser errors, tool errors, timeouts, and cost estimates.
@@ -301,7 +338,7 @@ Verification:
 
 ```text
 python3 -m pytest -q
-9 passed, 24 warnings
+10 passed, 32 warnings
 ```
 
 Known warning:
@@ -328,13 +365,10 @@ Current system is a strong lab prototype, but production deployment would requir
 
 ## 10. Missing Items Against Scoring Metrics
 
-The report and repository cover the required base scoring categories. The remaining gaps are mostly metadata or bonus evidence:
+The report and repository cover the required base scoring categories. The remaining gaps are mostly production or live-demo evidence:
 
 | Missing / Weak Item | Why It Matters | Suggested Fix |
 | :--- | :--- | :--- |
-| Team name and team member list are placeholders. | Required for submission identity. | Fill in `Team Name` and `Team Members`. |
 | Live demo evidence is not in the repo. | Bonus category gives up to +5. | Add screenshot, instructor sign-off note, or demo date result if completed. |
-| No advanced external tools such as browsing/search. | Bonus category gives up to +2. | Only add if relevant; current retail tools are enough for base score. |
 | Offline latency is not real production latency. | Rubric asks industry metrics; offline scripted numbers are only instrumentation proof. | Add one run with OpenAI/Gemini/local model if API/model is available. |
 | Fixed ticket ID `TK-8831`. | Fine for lab, not production-safe. | Generate unique IDs and add idempotency in future improvement. |
-
