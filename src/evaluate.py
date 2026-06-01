@@ -36,21 +36,25 @@ def run_chatbot_case(case: dict, use_env_llm: bool = False) -> dict:
     started = time.time()
     response = chatbot.answer(case["user_query"])
     latency_ms = response.get("latency_ms") or int((time.time() - started) * 1000)
-    predicted_success = False
+    assessment = assess_case_result(case, tools_used=[])
 
     return {
         "case_id": case["case_id"],
         "case_name": case["case_name"],
         "system": "Chatbot baseline",
         "expected_success": case["expected_success"],
-        "predicted_success": predicted_success,
-        "success": predicted_success == case["expected_success"],
+        "predicted_success": assessment["predicted_success"],
+        "success": assessment["success"],
         "latency_ms": latency_ms,
         "tokens": response.get("usage", {}).get("total_tokens", 0),
         "cost": estimate_cost(response.get("usage", {}).get("total_tokens", 0)),
         "loop_count": 1,
         "tools_used": [],
-        "failure_type": None if predicted_success == case["expected_success"] else "baseline_no_tool_verification",
+        "expected_tools": case["expected_tools"],
+        "missing_expected_tools": assessment["missing_expected_tools"],
+        "tool_sequence_ok": assessment["tool_sequence_ok"],
+        "outcome_matches": assessment["outcome_matches"],
+        "failure_type": None if assessment["success"] else classify_failure(case, [], None, assessment),
         "parser_errors": 0,
         "tool_errors": 0,
         "timeout_errors": 0,
@@ -73,25 +77,27 @@ def run_agent_case(case: dict, version: str, use_env_llm: bool = True) -> dict:
 
     stats = agent.last_run_stats
     tools_used = stats.get("tools_used", [])
-    predicted_success = "create_return_ticket" in tools_used
-    success = predicted_success == case["expected_success"]
+    assessment = assess_case_result(case, tools_used)
     latency_ms = stats.get("latency_ms") or int((time.time() - started) * 1000)
-    failure_type = classify_failure(case, tools_used, provider_error)
+    failure_type = classify_failure(case, tools_used, provider_error, assessment)
 
     return {
         "case_id": case["case_id"],
         "case_name": case["case_name"],
         "system": system_name,
         "expected_success": case["expected_success"],
-        "predicted_success": predicted_success,
-        "success": success,
+        "predicted_success": assessment["predicted_success"],
+        "success": assessment["success"],
         "latency_ms": latency_ms,
         "tokens": stats.get("tokens", 0),
         "cost": round(stats.get("cost", 0.0), 6),
         "loop_count": stats.get("loop_count", len(tools_used)),
         "tools_used": tools_used,
         "expected_tools": case["expected_tools"],
-        "failure_type": None if success else failure_type or "unexpected_result",
+        "missing_expected_tools": assessment["missing_expected_tools"],
+        "tool_sequence_ok": assessment["tool_sequence_ok"],
+        "outcome_matches": assessment["outcome_matches"],
+        "failure_type": None if assessment["success"] else failure_type or "unexpected_result",
         "parser_errors": stats.get("parser_errors", 0),
         "tool_errors": stats.get("tool_errors", 0),
         "timeout_errors": stats.get("timeout_errors", 0),
@@ -100,16 +106,54 @@ def run_agent_case(case: dict, version: str, use_env_llm: bool = True) -> dict:
     }
 
 
-def classify_failure(case: dict, tools_used: list[str], provider_error: str | None = None) -> str | None:
+def assess_case_result(case: dict, tools_used: list[str]) -> dict:
+    expected_tools = case.get("expected_tools", [])
+    predicted_success = "create_return_ticket" in tools_used
+    outcome_matches = predicted_success == case["expected_success"]
+    missing_expected_tools = [
+        tool for tool in expected_tools if tool not in tools_used
+    ]
+    tool_sequence_ok = _is_subsequence(expected_tools, tools_used)
+
+    return {
+        "predicted_success": predicted_success,
+        "success": outcome_matches and not missing_expected_tools and tool_sequence_ok,
+        "outcome_matches": outcome_matches,
+        "missing_expected_tools": missing_expected_tools,
+        "tool_sequence_ok": tool_sequence_ok,
+    }
+
+
+def _is_subsequence(expected_tools: list[str], tools_used: list[str]) -> bool:
+    if not expected_tools:
+        return True
+
+    position = 0
+    for tool in tools_used:
+        if position < len(expected_tools) and tool == expected_tools[position]:
+            position += 1
+    return position == len(expected_tools)
+
+
+def classify_failure(
+    case: dict,
+    tools_used: list[str],
+    provider_error: str | None = None,
+    assessment: dict | None = None,
+) -> str | None:
+    assessment = assessment or assess_case_result(case, tools_used)
     if provider_error:
         return "provider_error"
     if "create_return_ticket" in tools_used and not case["expected_success"]:
         return "created_ticket_for_negative_case"
     if case["expected_success"] and "create_return_ticket" not in tools_used:
         return "ticket_not_created"
-    missing_tools = [tool for tool in case["expected_tools"] if tool not in tools_used]
-    if missing_tools:
+    if assessment["missing_expected_tools"]:
         return "missing_expected_tools"
+    if not assessment["tool_sequence_ok"]:
+        return "expected_tool_order_mismatch"
+    if not assessment["outcome_matches"]:
+        return "unexpected_outcome"
     return None
 
 

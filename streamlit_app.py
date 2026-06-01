@@ -12,12 +12,14 @@ from src.agent.run_agent import (
     enrich_demo_query,
 )
 from src.chatbot import BaselineChatbot
+from src.evaluate import assess_case_result
 from src.tools import TOOLS
 
 
 ROOT_DIR = Path(__file__).resolve().parent
 TEST_CASES_PATH = ROOT_DIR / "src" / "tools" / "mock_data" / "test_cases.json"
 RETURN_TICKETS_PATH = ROOT_DIR / "src" / "tools" / "mock_data" / "return_tickets.json"
+LOG_DIR = ROOT_DIR / "logs"
 
 
 def load_test_cases() -> list[dict[str, Any]]:
@@ -102,6 +104,22 @@ def parse_action(content: str) -> Optional[dict[str, Any]]:
     return {"tool_name": match.group(1), "args": args}
 
 
+def list_local_log_files() -> list[Path]:
+    if not LOG_DIR.exists():
+        return []
+
+    patterns = ["*.jsonl", "*.json", "*.log"]
+    files: list[Path] = []
+    for pattern in patterns:
+        files.extend(LOG_DIR.rglob(pattern))
+    return sorted(files, key=lambda path: path.stat().st_mtime, reverse=True)
+
+
+def read_tail(path: Path, max_lines: int = 80) -> str:
+    lines = read_text(path).splitlines()
+    return "\n".join(lines[-max_lines:])
+
+
 def metric_value(stats: dict[str, Any], key: str, default: Any = 0) -> Any:
     value = stats.get(key, default)
     return value if value not in (None, "") else default
@@ -139,6 +157,23 @@ def render_agent_metrics(stats: dict[str, Any], provider_label: str) -> None:
         st.caption("Tools used: none")
 
 
+def render_case_checklist(case: dict[str, Any], stats: dict[str, Any]) -> None:
+    assessment = assess_case_result(case, stats.get("tools_used", []))
+    st.subheader("Evaluation checklist")
+    col_a, col_b, col_c = st.columns(3)
+    col_a.metric("Outcome match", "yes" if assessment["outcome_matches"] else "no")
+    col_b.metric("Tool order", "yes" if assessment["tool_sequence_ok"] else "no")
+    col_c.metric("Case pass", "yes" if assessment["success"] else "no")
+
+    if assessment["missing_expected_tools"]:
+        st.warning(
+            "Missing expected tools: "
+            + " -> ".join(assessment["missing_expected_tools"])
+        )
+    else:
+        st.caption("All expected tools were called.")
+
+
 def render_trace(history: list[dict[str, Any]]) -> None:
     with st.expander("Reasoning trace", expanded=True):
         if not history:
@@ -148,12 +183,54 @@ def render_trace(history: list[dict[str, Any]]) -> None:
         for item in history:
             step = item.get("step", "?")
             content = item.get("llm_response", "")
-            action = parse_action(content)
+            action = item.get("action") or parse_action(content)
+            observation = item.get("observation")
 
             st.markdown(f"**Step {step}**")
             st.code(content, language="text")
             if action:
+                st.caption("Action")
                 st.json(action)
+            if observation:
+                st.caption("Observation")
+                st.json(observation)
+
+
+def render_current_run_logs(
+    baseline_result: dict[str, Any],
+    agent_answer: str,
+    agent_stats: dict[str, Any],
+    agent_history: list[dict[str, Any]],
+    provider_label: str,
+) -> None:
+    with st.expander("Current run logs", expanded=False):
+        st.json(
+            {
+                "baseline": baseline_result,
+                "agent": {
+                    "answer": agent_answer,
+                    "provider": provider_label,
+                    "stats": agent_stats,
+                    "history": agent_history,
+                },
+            }
+        )
+
+
+def render_saved_logs() -> None:
+    with st.expander("Saved local log files", expanded=False):
+        log_files = list_local_log_files()
+        if not log_files:
+            st.info("No files found in logs/ yet.")
+            return
+
+        selected = st.selectbox(
+            "Log file",
+            log_files,
+            format_func=lambda path: str(path.relative_to(ROOT_DIR)),
+        )
+        st.caption(str(selected))
+        st.code(read_tail(selected), language="json")
 
 
 def main() -> None:
@@ -187,6 +264,7 @@ def main() -> None:
             "- Customer: `USER_48291`\n"
             "- Valid exchange: `AT102` -> size `L`\n"
             "- Expired window: `AT103`\n"
+            "- Out of stock: `AT104` -> size `L`\n"
             "- Final sale: `AT999`\n"
             "- Missing order: `AT404`"
         )
@@ -260,7 +338,17 @@ def main() -> None:
 
     st.divider()
     render_agent_metrics(agent_stats, provider_label)
+    if selected_data:
+        render_case_checklist(selected_data, agent_stats)
     render_trace(agent_history)
+    render_current_run_logs(
+        baseline_result,
+        agent_answer,
+        agent_stats,
+        agent_history,
+        provider_label,
+    )
+    render_saved_logs()
 
 
 if __name__ == "__main__":

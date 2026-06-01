@@ -18,6 +18,19 @@ pip install -r requirements.txt
 ### 3. Directory Structure
 - `src/tools/`: Extension point for your custom tools.
 
+### 4. Run the Local Web Demo
+```bash
+streamlit run streamlit_app.py
+```
+
+After entering a customer question and clicking **Run comparison**, the app shows:
+- Baseline chatbot answer, latency, token count, and model/provider.
+- ReAct agent answer, latency, token count, estimated cost, loop count, parser/tool/timeout errors, provider, and tools used.
+- Reasoning trace with each LLM step, parsed action, and tool observation.
+- Current run logs as JSON and saved local log files from `logs/`.
+
+For preset cases, the app also shows an evaluation checklist for outcome match, expected tool order, missing tools, and final pass/fail.
+
 ## 🏠 Running with Local Models (CPU)
 
 If you don't want to use OpenAI or Gemini, you can run open-source models (like Phi-3) directly on your CPU using `llama-cpp-python`.

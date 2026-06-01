@@ -22,5 +22,13 @@
     "stock_quantity": 0,
     "warehouse": "Kho Tổng",
     "last_updated": "2026-06-01"
+  },
+  {
+    "product_id": "AT104",
+    "size": "L",
+    "status": "out_of_stock",
+    "stock_quantity": 0,
+    "warehouse": "Kho Tổng",
+    "last_updated": "2026-06-01"
   }
 ]

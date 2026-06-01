@@ -61,7 +61,8 @@ class ReActAgent:
             self.last_run_stats["latency_ms"] += result.get("latency_ms", 0)
 
             content = result.get("content", "") or ""
-            self.history.append({"step": step, "llm_response": content})
+            history_item = {"step": step, "llm_response": content}
+            self.history.append(history_item)
             logger.log_event(
                 "LLM_RESPONSE",
                 {
@@ -79,6 +80,7 @@ class ReActAgent:
                     "AGENT_END",
                     {"status": "success", "steps": step, "final_answer": final_answer},
                 )
+                history_item["final_answer"] = final_answer
                 self.last_run_stats["loop_count"] = step
                 self.last_run_stats["final_answer"] = final_answer
                 return final_answer
@@ -94,6 +96,7 @@ class ReActAgent:
                     "PARSER_ERROR",
                     {"step": step, "content": content, "observation": observation},
                 )
+                history_item["observation"] = observation
                 conversation_trace = self._append_observation(
                     conversation_trace,
                     content,
@@ -109,7 +112,9 @@ class ReActAgent:
                     "args": action["args"],
                 },
             )
+            history_item["action"] = action
             observation = self._execute_tool(action["tool_name"], action["args"])
+            history_item["observation"] = observation
             self.last_run_stats["tools_used"].append(action["tool_name"])
             if observation.get("error") in {"TOOL_EXECUTION_ERROR", "TOOL_NOT_FOUND"}:
                 self.last_run_stats["tool_errors"] += 1

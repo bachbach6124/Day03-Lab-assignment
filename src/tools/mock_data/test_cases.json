@@ -30,9 +30,9 @@
   {
     "case_id": "TC03",
     "case_name": "Hết hàng size L",
-    "user_query": "Mình muốn đổi áo sơ mi mã AT103 sang size L, shop kiểm tra giúp còn hàng không?",
+    "user_query": "Mình muốn đổi áo polo mã AT104 từ size M sang size L, shop kiểm tra giúp còn hàng không?",
     "customer_id": "USER_48291",
-    "product_id": "AT103",
+    "product_id": "AT104",
     "target_size": "L",
     "expected_behavior": "Báo hết hàng size L và đề xuất chờ/restock.",
     "expected_success": false,
