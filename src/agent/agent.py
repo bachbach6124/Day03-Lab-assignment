@@ -1,13 +1,14 @@
-import os
+import json
 import re
 from typing import List, Dict, Any, Optional
 from src.core.llm_provider import LLMProvider
+from src.agent.prompts import build_react_prompt
 from src.telemetry.logger import logger
+from src.telemetry.metrics import tracker
 
 class ReActAgent:
     """
-    SKELETON: A ReAct-style Agent that follows the Thought-Action-Observation loop.
-    Students should implement the core loop logic and tool execution.
+    A ReAct-style Agent that follows the Thought-Action-Observation loop.
     """
     
     def __init__(self, llm: LLMProvider, tools: List[Dict[str, Any]], max_steps: int = 5):
@@ -17,58 +18,210 @@ class ReActAgent:
         self.history = []
 
     def get_system_prompt(self) -> str:
-        """
-        TODO: Implement the system prompt that instructs the agent to follow ReAct.
-        Should include:
-        1.  Available tools and their descriptions.
-        2.  Format instructions: Thought, Action, Observation.
-        """
-        tool_descriptions = "\n".join([f"- {t['name']}: {t['description']}" for t in self.tools])
-        return f"""
-        You are an intelligent assistant. You have access to the following tools:
-        {tool_descriptions}
-
-        Use the following format:
-        Thought: your line of reasoning.
-        Action: tool_name(arguments)
-        Observation: result of the tool call.
-        ... (repeat Thought/Action/Observation if needed)
-        Final Answer: your final response.
-        """
+        tool_descriptions = "\n".join(
+            [f"- {tool['name']}: {tool['description']}" for tool in self.tools]
+        )
+        return build_react_prompt(tool_descriptions)
 
     def run(self, user_input: str) -> str:
         """
-        TODO: Implement the ReAct loop logic.
-        1. Generate Thought + Action.
-        2. Parse Action and execute Tool.
-        3. Append Observation to prompt and repeat until Final Answer.
+        Run the ReAct loop until the model produces a final answer or max_steps is reached.
         """
-        logger.log_event("AGENT_START", {"input": user_input, "model": self.llm.model_name})
+        logger.log_event(
+            "AGENT_START",
+            {
+                "input": user_input,
+                "model": self.llm.model_name,
+                "max_steps": self.max_steps,
+                "tools": self._available_tool_names(),
+            },
+        )
         
-        current_prompt = user_input
-        steps = 0
+        conversation_trace = f"User request:\n{user_input}"
 
-        while steps < self.max_steps:
-            # TODO: Generate LLM response
-            # result = self.llm.generate(current_prompt, system_prompt=self.get_system_prompt())
-            
-            # TODO: Parse Thought/Action from result
-            
-            # TODO: If Action found -> Call tool -> Append Observation
-            
-            # TODO: If Final Answer found -> Break loop
-            
-            steps += 1
-            
-        logger.log_event("AGENT_END", {"steps": steps})
-        return "Not implemented. Fill in the TODOs!"
+        for step in range(1, self.max_steps + 1):
+            result = self.llm.generate(
+                conversation_trace,
+                system_prompt=self.get_system_prompt(),
+            )
+            self._track_llm_metric(result)
 
-    def _execute_tool(self, tool_name: str, args: str) -> str:
+            content = result.get("content", "") or ""
+            self.history.append({"step": step, "llm_response": content})
+            logger.log_event(
+                "LLM_RESPONSE",
+                {
+                    "step": step,
+                    "content": content,
+                    "provider": result.get("provider"),
+                    "usage": result.get("usage", {}),
+                    "latency_ms": result.get("latency_ms"),
+                },
+            )
+
+            final_answer = self._parse_final_answer(content)
+            if final_answer:
+                logger.log_event(
+                    "AGENT_END",
+                    {"status": "success", "steps": step, "final_answer": final_answer},
+                )
+                return final_answer
+
+            action = self._parse_action(content)
+            if not action:
+                observation = {
+                    "error": "PARSER_ERROR",
+                    "message": "Could not parse Action. Use: Action: tool_name({\"key\": \"value\"})",
+                }
+                logger.log_event(
+                    "PARSER_ERROR",
+                    {"step": step, "content": content, "observation": observation},
+                )
+                conversation_trace = self._append_observation(
+                    conversation_trace,
+                    content,
+                    observation,
+                )
+                continue
+
+            logger.log_event(
+                "TOOL_CALL",
+                {
+                    "step": step,
+                    "tool_name": action["tool_name"],
+                    "args": action["args"],
+                },
+            )
+            observation = self._execute_tool(action["tool_name"], action["args"])
+            logger.log_event(
+                "TOOL_OBSERVATION",
+                {
+                    "step": step,
+                    "tool_name": action["tool_name"],
+                    "observation": observation,
+                },
+            )
+            conversation_trace = self._append_observation(
+                conversation_trace,
+                content,
+                observation,
+            )
+            
+        message = (
+            "Dạ xin lỗi, hiện tại hệ thống chưa hoàn tất xử lý yêu cầu trong "
+            "giới hạn số bước. Shop sẽ cần kiểm tra thêm thông tin trước khi phản hồi chính xác ạ."
+        )
+        logger.log_event(
+            "TIMEOUT",
+            {"max_steps": self.max_steps, "message": message},
+        )
+        logger.log_event(
+            "AGENT_END",
+            {"status": "timeout", "steps": self.max_steps},
+        )
+        return message
+
+    def _parse_final_answer(self, content: str) -> Optional[str]:
+        match = re.search(r"Final Answer\s*:\s*(.+)", content, re.IGNORECASE | re.DOTALL)
+        if not match:
+            return None
+        answer = match.group(1).strip()
+        return answer or None
+
+    def _parse_action(self, content: str) -> Optional[Dict[str, Any]]:
+        cleaned = self._strip_code_fences(content)
+        match = re.search(
+            r"Action\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\s*\((\s*\{.*\}\s*)\)",
+            cleaned,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if not match:
+            return None
+
+        tool_name = match.group(1)
+        args_text = match.group(2)
+        try:
+            args = json.loads(args_text)
+        except json.JSONDecodeError as exc:
+            logger.log_event(
+                "PARSER_ERROR",
+                {
+                    "tool_name": tool_name,
+                    "args_text": args_text,
+                    "message": str(exc),
+                },
+            )
+            return None
+
+        if not isinstance(args, dict):
+            logger.log_event(
+                "PARSER_ERROR",
+                {
+                    "tool_name": tool_name,
+                    "args_text": args_text,
+                    "message": "Action arguments must be a JSON object.",
+                },
+            )
+            return None
+
+        return {"tool_name": tool_name, "args": args}
+
+    def _execute_tool(self, tool_name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Helper method to execute tools by name.
+        Execute tools using the agreed interface: tool["func"](args: dict) -> dict.
         """
         for tool in self.tools:
-            if tool['name'] == tool_name:
-                # TODO: Implement dynamic function calling or simple if/else
-                return f"Result of {tool_name}"
-        return f"Tool {tool_name} not found."
+            if tool["name"] != tool_name:
+                continue
+
+            try:
+                result = tool["func"](args)
+            except Exception as exc:
+                observation = {
+                    "error": "TOOL_EXECUTION_ERROR",
+                    "message": str(exc),
+                    "tool_name": tool_name,
+                }
+                logger.log_event("TOOL_ERROR", observation)
+                return observation
+
+            if isinstance(result, dict):
+                return result
+            return {"result": result}
+
+        observation = {
+            "error": "TOOL_NOT_FOUND",
+            "message": f"Tool {tool_name} not found.",
+            "available_tools": self._available_tool_names(),
+        }
+        logger.log_event("TOOL_ERROR", observation)
+        return observation
+
+    def _append_observation(
+        self,
+        conversation_trace: str,
+        llm_content: str,
+        observation: Dict[str, Any],
+    ) -> str:
+        return (
+            f"{conversation_trace}\n\n"
+            f"{llm_content.strip()}\n"
+            f"Observation: {self._format_observation(observation)}"
+        )
+
+    def _format_observation(self, observation: Dict[str, Any]) -> str:
+        return json.dumps(observation, ensure_ascii=False)
+
+    def _available_tool_names(self) -> List[str]:
+        return [tool["name"] for tool in self.tools]
+
+    def _track_llm_metric(self, result: Dict[str, Any]) -> None:
+        tracker.track_request(
+            provider=result.get("provider", "unknown"),
+            model=self.llm.model_name,
+            usage=result.get("usage", {}),
+            latency_ms=result.get("latency_ms", 0),
+        )
+
+    def _strip_code_fences(self, content: str) -> str:
+        return re.sub(r"```(?:json|python|text)?\s*|\s*```", "", content, flags=re.IGNORECASE)
