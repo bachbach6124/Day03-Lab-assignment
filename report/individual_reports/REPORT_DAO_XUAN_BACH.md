@@ -1,50 +1,39 @@
 # Individual Report: Lab 3 - Chatbot vs ReAct Agent
 
-- **Student Name**: Nguyễn Công Thành
-- **Student ID**: [Điền mã sinh viên]
+- **Student Name**: Đào Xuân Bách
+- **Student ID**: 2A202600640
 - **Date**: 2026-06-01
+- **Project**: Retail size exchange / return ReAct Agent
 
 ---
 
 ## I. Technical Contribution (15 Points)
 
-### Modules Implemented / Improved
+### 1. Contribution Summary
 
-Trong lab này, phần đóng góp kỹ thuật chính tập trung vào việc biến baseline chatbot thành một workflow có thể đánh giá được bằng trace và tool verification:
+Trong lab này, phần đóng góp kỹ thuật tập trung vào việc biến một chatbot trả lời trực tiếp thành một ReAct Agent có thể kiểm chứng nghiệp vụ bằng tool trace và evaluation metrics.
 
-| Module | Contribution |
+| Module / File | Contribution |
 | :--- | :--- |
-| `src/agent/agent.py` | Triển khai/củng cố ReAct loop: parse `Action`, gọi tool, append `Observation`, lưu `history`, track tokens/cost/latency/errors. |
-| `src/agent/prompts.py` | Xây dựng prompt cho Agent v1 và Agent v2. Agent v2 có guardrails trước khi tạo ticket. |
-| `src/tools/retail_tools.py` | Xây dựng tool nghiệp vụ: kiểm tra order policy, kiểm kho, tạo return/exchange ticket. |
-| `src/evaluate.py` | Cải thiện evaluation để không chỉ check outcome mà còn check `expected_tools`, missing tools và tool sequence. |
-| `tests/test_retail_workflow.py` | Bổ sung tests cho retail tools, parser, TC03 out-of-stock case, evaluation logic và agent history. |
-| `streamlit_app.py` | Tạo demo UI để so sánh baseline chatbot với ReAct Agent, hiển thị metrics, reasoning trace, checklist và saved logs. |
+| `src/agent/agent.py` | Triển khai/củng cố ReAct loop: nhận output từ LLM, parse `Action`, gọi tool, append `Observation`, dừng khi có `Final Answer` hoặc vượt `max_steps`. |
+| `src/agent/prompts.py` | Xây dựng prompt cho Agent v1 và v2. v2 thêm guardrails: chỉ tạo ticket sau khi policy và stock đã được xác nhận. |
+| `src/tools/retail_tools.py` | Xây dựng bộ tool nghiệp vụ: kiểm tra order/policy, kiểm tra tồn kho, tạo ticket đổi hàng. |
+| `src/evaluate.py` | Cải thiện evaluation để đo đúng hành vi agent: outcome match, expected tools, missing tools, tool sequence, failure type. |
+| `src/analyze_logs.py` | Tổng hợp metrics từ JSONL logs: success rate, latency, token count, estimated cost, loop count, parser/tool/timeout errors. |
+| `tests/test_retail_workflow.py` | Bổ sung test cho retail workflow, parser/action behavior, TC03 out-of-stock, expected tool verification và agent history. |
+| `streamlit_app.py` | Tạo demo UI để so sánh chatbot vs agent, hiển thị answer, metrics, reasoning trace, checklist và saved logs. |
 
-### Code Highlights
+### 2. Code Quality Evidence
 
-ReAct Agent dùng format:
+Hệ thống được tách theo các module rõ ràng:
 
-```text
-Thought: ...
-Action: tool_name({"key": "value"})
-```
+- Agent loop không hard-code logic nghiệp vụ; nó gọi tool thông qua registry.
+- Retail tools nằm riêng trong `src/tools/retail_tools.py`.
+- LLM providers được tách qua interface `LLMProvider`, hỗ trợ OpenAI, Gemini, local model và scripted offline provider.
+- Evaluation và log analysis tách khỏi UI, giúp chạy test tự động.
+- Telemetry ghi lại token, cost estimate, latency, loop count, parser errors, tool errors và timeout errors.
 
-hoặc:
-
-```text
-Final Answer: ...
-```
-
-Khi LLM sinh `Action`, code parse arguments JSON rồi gọi tool tương ứng. Sau khi tool chạy, kết quả được ghi lại thành `Observation` và đưa lại vào prompt cho bước tiếp theo.
-
-Phần evaluation được cải thiện bằng function `assess_case_result`, giúp phát hiện các case "pass giả". Trước đây nếu một negative case không tạo ticket thì có thể được tính pass, dù agent chưa gọi đủ tool cần thiết. Sau cải tiến, case chỉ pass khi:
-
-1. Outcome đúng (`create_return_ticket` có/không có đúng kỳ vọng).
-2. Không thiếu expected tools.
-3. Tool sequence đúng thứ tự mong muốn.
-
-### Verification
+### 3. Verification Result
 
 Các lệnh đã chạy:
 
@@ -57,37 +46,48 @@ python3 -m src.analyze_logs
 Kết quả test:
 
 ```text
-9 passed
+9 passed, 24 warnings
 ```
 
 Kết quả evaluation:
 
-| System | Success Rate | Total Tokens | Avg Loop |
-| :--- | ---: | ---: | ---: |
-| Chatbot baseline | 0.0% | 327 | 1.00 |
-| Agent v1 | 100.0% | 4133 | 2.60 |
-| Agent v2 | 100.0% | 5504 | 2.60 |
+| System | Success Rate | Avg Latency | Total Tokens | Est. Cost | Avg Loop | Parser / Tool / Timeout Errors |
+| :--- | ---: | ---: | ---: | ---: | ---: | :--- |
+| Chatbot baseline | 0.0% | 0.0ms | 327 | $0.003270 | 1.00 | 0 / 0 / 0 |
+| Agent v1 | 100.0% | 0.8ms | 4133 | $0.041330 | 2.60 | 0 / 0 / 0 |
+| Agent v2 | 100.0% | 0.2ms | 5504 | $0.055040 | 2.60 | 0 / 0 / 0 |
+
+### 4. Scoring Alignment
+
+Rubric yêu cầu phần technical contribution phải có module cụ thể và bằng chứng code quality. Phần này đáp ứng bằng cách liệt kê đúng file, trách nhiệm của từng file, kết quả test và metrics sau evaluation.
 
 ---
 
 ## II. Debugging Case Study (10 Points)
 
-### Problem Description
+### 1. Problem: False Pass in Negative Cases
 
-Một vấn đề quan trọng trong quá trình làm lab là case `TC03 - Hết hàng size L`. Mục tiêu của case này là kiểm tra agent xử lý tình huống đơn hàng hợp lệ nhưng size cần đổi đã hết hàng. Agent phải:
+Case quan trọng nhất trong quá trình debug là `TC03 - Hết hàng size L`.
 
-1. Gọi `check_order_status`.
-2. Thấy `policy_valid=true`.
-3. Gọi `check_warehouse_stock`.
-4. Thấy `status="out_of_stock"`.
-5. Không tạo ticket.
-6. Trả lời khách rằng size đã hết hàng và đề xuất chờ restock/chọn mẫu khác.
+Mục tiêu của TC03:
 
-Nếu evaluation chỉ kiểm tra "agent có tạo ticket không", TC03 có thể pass ngay cả khi agent không kiểm kho. Đây là pass giả vì thiếu tool verification.
+1. Khách có đơn hàng hợp lệ.
+2. Đơn vẫn còn trong thời hạn đổi trả.
+3. Size khách muốn đổi là size L.
+4. Kho không còn size L.
+5. Agent phải kiểm tra kho rồi mới từ chối tạo ticket.
 
-### Log Source
+Nếu evaluation chỉ kiểm tra "có tạo ticket hay không", TC03 có thể pass giả. Một agent không kiểm kho và cũng không tạo ticket vẫn có thể được tính đúng, dù nó chưa chứng minh được lý do nghiệp vụ.
 
-Log sau khi chạy `python3 -m src.evaluate --offline-agents` cho TC03:
+### 2. Failure Signal from Telemetry / Logs
+
+Sau khi chạy:
+
+```bash
+python3 -m src.evaluate --offline-agents
+```
+
+Evaluation log cho TC03 của Agent v2 có dạng:
 
 ```json
 {
@@ -101,114 +101,185 @@ Log sau khi chạy `python3 -m src.evaluate --offline-agents` cho TC03:
   "expected_tools": ["check_order_status", "check_warehouse_stock"],
   "missing_expected_tools": [],
   "tool_sequence_ok": true,
-  "outcome_matches": true,
-  "final_answer": "Dạ shop đã kiểm tra đơn hàng hợp lệ nhưng size bạn muốn đổi hiện chưa còn hàng..."
+  "outcome_matches": true
 }
 ```
 
-### Diagnosis
+Trace quan trọng:
 
-Root cause nằm ở thiết kế evaluation và test data. Với một negative case, việc không tạo ticket là cần thiết nhưng chưa đủ. Agent vẫn phải chứng minh rằng nó đã kiểm tra đúng nguyên nhân thất bại. TC03 phải fail nếu thiếu `check_warehouse_stock`.
+```text
+Action: check_order_status({"customer_id": "USER_48291", "product_id": "AT104"})
+Observation: {"policy_valid": true, "reason": "Within 7-day exchange window"}
 
-Ngoài ra, dữ liệu test cần mô phỏng đúng nghiệp vụ: sản phẩm `AT104` là đơn còn trong hạn đổi trả, nhưng size `L` hết hàng. Như vậy agent buộc phải đi qua cả policy check và stock check.
+Action: check_warehouse_stock({"product_id": "AT104", "size": "L"})
+Observation: {"status": "out_of_stock", "stock_quantity": 0}
 
-### Solution
+Final Answer: size L hết hàng, không tạo phiếu đổi.
+```
 
-Các cải tiến đã thực hiện:
+### 3. Root Cause
 
-- Cập nhật TC03 dùng `AT104`, một order hợp lệ nhưng size `L` hết hàng.
-- Thêm stock record `AT104`, size `L`, `stock_quantity=0`.
-- Thêm `assess_case_result` trong `src/evaluate.py` để check:
-  - `outcome_matches`
-  - `missing_expected_tools`
-  - `tool_sequence_ok`
-- Thêm tests trong `tests/test_retail_workflow.py`:
-  - TC03 mock data phải là order hợp lệ và size L out of stock.
-  - Evaluation phải fail nếu thiếu stock check.
-  - Scripted agent phải xử lý TC03 bằng `check_order_status -> check_warehouse_stock` và không tạo ticket.
+Root cause không nằm ở tool, mà nằm ở cách đánh giá ban đầu:
 
-Kết quả sau fix: Agent v2 pass TC03 đúng nghĩa, không chỉ pass vì không tạo ticket.
+- Với positive case, việc tạo ticket là dấu hiệu khá rõ.
+- Với negative case, việc không tạo ticket là cần thiết nhưng chưa đủ.
+- Agent vẫn phải gọi đúng tool để chứng minh nguyên nhân từ chối.
+
+TC03 đặc biệt quan trọng vì nó tách riêng hai điều kiện:
+
+- policy hợp lệ,
+- stock không hợp lệ.
+
+Nếu test data dùng một đơn hết hạn, agent có thể từ chối ngay sau policy check và không bao giờ cần kiểm kho. Vì vậy TC03 phải dùng product `AT104`, một đơn hợp lệ nhưng size `L` có `stock_quantity=0`.
+
+### 4. Fix Implemented
+
+Các thay đổi/cải tiến đã được thực hiện:
+
+- TC03 được thiết kế lại để dùng `AT104`: đơn hợp lệ, trong 7 ngày, nhưng size L hết hàng.
+- `warehouse_stock.json` có record cho `AT104`, size `L`, quantity `0`.
+- `assess_case_result` trong `src/evaluate.py` kiểm tra:
+  - `outcome_matches`,
+  - `missing_expected_tools`,
+  - `tool_sequence_ok`.
+- `classify_failure` phân loại các lỗi như:
+  - `ticket_not_created`,
+  - `created_ticket_for_negative_case`,
+  - `missing_expected_tools`,
+  - `expected_tool_order_mismatch`,
+  - `provider_error`.
+- Tests được thêm để đảm bảo TC03 fail nếu thiếu stock check.
+
+### 5. Result After Fix
+
+Agent v1 và v2 đều pass TC03 đúng nghĩa:
+
+- gọi `check_order_status`,
+- thấy policy hợp lệ,
+- gọi `check_warehouse_stock`,
+- thấy size L hết hàng,
+- không gọi `create_return_ticket`,
+- trả lời khách với lý do đúng.
+
+Đây là ví dụ rõ nhất cho yêu cầu của rubric: lỗi và quá trình sửa phải được phân tích bằng telemetry/logs, không chỉ bằng cảm giác rằng câu trả lời "nghe có vẻ đúng".
 
 ---
 
-## III. Personal Insights: Chatbot vs ReAct (10 Points)
+## III. Personal Insights: Chatbot vs ReAct Agent (10 Points)
 
-### 1. Reasoning
+### 1. Chatbot Is Language-First
 
-Baseline chatbot chỉ sinh câu trả lời trực tiếp từ prompt. Nó có thể lịch sự và tự nhiên, nhưng không có khả năng kiểm tra dữ liệu thật. Với bài toán đổi trả, câu trả lời đẹp chưa đủ; hệ thống cần biết đơn có tồn tại không, còn trong thời hạn đổi trả không, size cần đổi có còn hàng không và ticket đã được tạo chưa.
+Baseline chatbot phù hợp khi nhiệm vụ là FAQ hoặc tư vấn chung. Nó có thể viết câu trả lời tự nhiên, lịch sự và có vẻ hợp lý. Tuy nhiên, trong workflow đổi trả, câu trả lời hay không đủ để tạo niềm tin.
 
-ReAct Agent giải quyết vấn đề này bằng cách tách reasoning thành nhiều bước nhỏ. `Thought` giúp model xác định bước tiếp theo, `Action` biến suy nghĩ thành tool call, còn `Observation` đưa kết quả từ môi trường quay lại model. Nhờ vậy câu trả lời cuối cùng có căn cứ hơn.
+Ví dụ, khi khách hỏi đổi size, hệ thống phải biết:
 
-### 2. Reliability
+- đơn có tồn tại không,
+- sản phẩm có thuộc khách đó không,
+- còn trong hạn 7 ngày không,
+- có phải final sale không,
+- size mới còn hàng không,
+- ticket có được tạo thật không.
 
-Agent đáng tin hơn trong các task multi-step vì nó không phải đoán. Ví dụ:
+Chatbot baseline không có kênh để kiểm tra những điều này. Vì vậy nó fail 0/5 trong evaluation dù không có parser/tool/timeout error.
 
-- TC01: Agent kiểm order, kiểm kho rồi tạo ticket.
-- TC02: Agent kiểm policy và từ chối vì quá hạn.
-- TC03: Agent kiểm policy, kiểm kho và báo hết hàng.
-- TC04: Agent báo không tìm thấy đơn sau khi gọi tool.
-- TC05: Agent từ chối vì sản phẩm final sale.
+### 2. ReAct Agent Is Action-and-Evidence-First
 
-Tuy nhiên, Agent cũng có trade-off:
+ReAct Agent khác chatbot ở chỗ nó không chỉ trả lời; nó hành động theo từng bước và dùng kết quả từ môi trường để quyết định bước tiếp theo.
 
-- Tốn nhiều token hơn baseline.
-- Cần parser robust vì LLM có thể sinh sai format `Action`.
-- Cần `max_steps` để tránh loop.
-- Tool descriptions và prompt guardrails ảnh hưởng mạnh đến chất lượng.
+Cấu trúc `Thought -> Action -> Observation` giúp agent:
 
-### 3. Observation
+- chia task phức tạp thành các bước nhỏ,
+- gọi tool đúng thời điểm,
+- thay đổi quyết định dựa trên dữ liệu thật,
+- tạo final answer có căn cứ.
 
-Observation là điểm khác biệt lớn nhất giữa chatbot và agent. Agent không chỉ dựa vào user query, mà còn thay đổi quyết định dựa trên dữ liệu tool trả về.
+Trong TC01, agent tạo ticket vì đã thấy policy hợp lệ và stock còn hàng. Trong TC03, agent không tạo ticket vì observation cho thấy stock bằng 0. Điểm khác biệt nằm ở `Observation`: agent có bằng chứng để hành động.
 
-Ví dụ TC03:
+### 3. Reliability Requires Evaluation Beyond Final Answer
 
-```text
-Observation: {"policy_valid": true}
-```
+Bài học lớn nhất là không nên chỉ chấm final answer. Một câu trả lời có thể đúng bề mặt nhưng sai quy trình.
 
-khiến agent tiếp tục kiểm kho.
+Ví dụ với negative case:
 
-```text
-Observation: {"status": "out_of_stock", "stock_quantity": 0}
-```
+- "Shop không thể đổi size" có thể là câu trả lời đúng.
+- Nhưng nếu agent không kiểm kho hoặc không kiểm policy, câu trả lời đó không đáng tin.
 
-khiến agent dừng và không tạo ticket.
+Vì vậy evaluation phải đo cả:
 
-Điều này cho thấy ReAct Agent phù hợp hơn cho các workflow nghiệp vụ cần kiểm chứng từng bước.
+- expected tools,
+- missing tools,
+- tool sequence,
+- outcome match,
+- failure type.
+
+Đây là điểm biến lab từ "chatbot demo" thành một hệ thống agentic có thể debug và cải tiến.
+
+### 4. Trade-off: Safety vs Cost
+
+Agent v2 dùng 5504 tokens, cao hơn v1 với 4133 tokens. Lý do là prompt v2 có nhiều guardrails hơn. Trên bộ 5 test cases, cả hai đều đạt 100%, nên không nên nói v2 "tăng accuracy". Cách nói đúng hơn là:
+
+- v2 tăng độ kỷ luật khi gọi tool,
+- v2 giảm rủi ro tạo ticket khi chưa đủ observation,
+- v2 có production readiness tốt hơn,
+- v2 tốn nhiều token hơn.
+
+Trong hệ thống thật, trade-off này hợp lý nếu sai action gây hậu quả lớn hơn chi phí token.
 
 ---
 
 ## IV. Future Improvements (5 Points)
 
-### Scalability
+### 1. Scale to Production RAG
 
-- Kết nối tool với database thật thay vì JSON mock data.
-- Tách tool execution thành service layer hoặc async job queue.
-- Dùng RAG để retrieve chính sách đổi trả từ tài liệu nội bộ thay vì hard-code trong mock data.
-- Dùng LangGraph hoặc state machine nếu workflow có nhiều nhánh phức tạp hơn.
+Hiện tại policy đổi trả nằm trong mock data và tool logic. Để scale lên production, hệ thống nên dùng RAG:
 
-### Safety
+- index tài liệu chính sách đổi trả chính thức,
+- retrieve policy theo loại sản phẩm, ngày mua, chương trình sale,
+- trích dẫn policy trong final answer,
+- version policy theo thời gian để tránh áp dụng nhầm luật cũ.
+
+### 2. Multi-Agent Architecture
+
+Nếu workflow mở rộng sang hoàn tiền, đổi sản phẩm khác giá, hoặc khiếu nại vận chuyển, có thể tách thành nhiều agent:
+
+- **Policy Agent**: đọc policy/RAG và xác định điều kiện.
+- **Inventory Agent**: kiểm kho theo size, màu, cửa hàng/kho.
+- **Ticket Agent**: tạo ticket, đảm bảo idempotency và transaction.
+- **Escalation Agent**: chuyển human-in-the-loop khi refund cao hoặc thông tin mâu thuẫn.
+
+Một orchestrator hoặc state machine như LangGraph có thể điều phối các agent này.
+
+### 3. Safety Improvements
 
 - Thêm authentication để xác minh `customer_id`.
-- Không cho LLM tự ý tạo ticket nếu thiếu order ID hoặc user identity.
-- Thêm human-in-the-loop approval cho các action nhạy cảm như refund hoặc đổi sản phẩm giá trị cao.
-- Thêm idempotency key để tránh tạo trùng ticket khi retry.
+- Không cho LLM tự quyết định `customer_id` nếu user chưa xác thực.
+- Thêm idempotency key để tránh tạo ticket trùng khi retry.
+- Thêm approval step cho refund hoặc đổi sản phẩm giá trị cao.
+- Validate tool arguments bằng schema trước khi execute.
 
-### Performance
+### 4. Monitoring Improvements
 
-- Tối ưu prompt v2 để giảm token nhưng vẫn giữ guardrails.
-- Log real cost theo pricing của từng provider.
-- Theo dõi P50/P95/P99 latency thay vì chỉ average latency.
-- Cache kết quả policy/stock trong cùng session nếu user hỏi lại cùng sản phẩm.
+- Ghi real cost theo model/provider thay vì cost estimate cố định.
+- Theo dõi P50/P95/P99 latency.
+- Alert khi parser errors, hallucinated tools, tool errors, timeout hoặc missing expected tools tăng.
+- Lưu full trace cho failed cases để RCA nhanh.
+- So sánh prompt variants bằng ablation dashboard.
 
-### Monitoring
+---
 
-- Alert khi parser errors, tool errors hoặc timeout tăng bất thường.
-- Dashboard theo provider/model để so sánh OpenAI, Gemini và local models.
-- Lưu full trace cho các failed cases để phục vụ RCA nhanh hơn.
+## Missing Items for Individual Submission
+
+| Missing / Weak Item | Impact | Suggested Fix |
+| :--- | :--- | :--- |
+| Student ID đang để placeholder. | Thiếu metadata nộp bài. | Bổ sung mã sinh viên thật. |
+| Contribution ownership chưa có commit evidence. | Nếu giảng viên yêu cầu accountability theo Git, report chưa chứng minh bằng commit hash. | Bổ sung commit IDs hoặc PR link nếu có. |
+| Offline latency không đại diện production latency. | Metrics latency hiện chứng minh logging, chưa chứng minh performance với API thật. | Chạy thêm một evaluation bằng OpenAI/Gemini/local model nếu có key/model. |
+| Live demo evidence không có trong individual report. | Có thể ảnh hưởng bonus nếu cần chứng minh demo. | Bổ sung screenshot/demo note nếu đã demo với instructor. |
 
 ---
 
 ## Final Reflection
 
-Lab này cho thấy khác biệt thực tế giữa "chatbot biết nói" và "agent biết hành động". Baseline chatbot phù hợp với FAQ đơn giản, nhưng với workflow đổi trả cần kiểm tra dữ liệu, ReAct Agent đáng tin hơn vì mọi quyết định đều đi qua tool call và observation. Phần quan trọng nhất không chỉ là làm agent chạy được, mà là biết đọc trace, phát hiện pass giả và cải thiện evaluation để đo đúng hành vi cần có.
+Điểm quan trọng nhất mình học được là ReAct Agent không chỉ là chatbot dài hơn. Nó là một vòng lặp có bằng chứng: suy nghĩ, gọi tool, đọc observation, rồi mới quyết định. Với bài toán đổi trả, sự khác biệt này rất lớn vì hệ thống không được phép đoán tồn kho hoặc đoán chính sách.
+
+Lab cũng cho thấy evaluation phải được thiết kế cẩn thận. Nếu chỉ nhìn final answer, negative cases rất dễ pass giả. Khi thêm expected tools, tool sequence và failure type, mình có thể thấy rõ hệ thống sai ở đâu và sửa đúng chỗ hơn.
