@@ -45,6 +45,14 @@ python3 -m src.evaluate --offline-agents
 python3 -m src.analyze_logs
 ```
 
+Ngoài offline evaluation, hệ thống cũng đã được chạy bằng API thật của Gemini qua model `gemini-2.5-flash`. Log real API nằm trong `logs/2026-06-01.log`, ví dụ:
+
+| Provider | Model | Example | Latency | Tokens | Cost Estimate |
+| :--- | :--- | :--- | ---: | ---: | ---: |
+| Google | `gemini-2.5-flash` | "Tôi muốn đổi hàng" | 2270ms | 769 | $0.007690 |
+| Google | `gemini-2.5-flash` | valid AT102 size exchange, step 1 | 3120ms | 901 | $0.009010 |
+| Google | `gemini-2.5-flash` | valid AT102 size exchange, final step | 2524ms | 1273 | $0.012730 |
+
 Kết quả test:
 
 ```text
@@ -279,7 +287,7 @@ Một orchestrator hoặc state machine như LangGraph có thể điều phối 
 | Missing / Weak Item | Impact | Suggested Fix |
 | :--- | :--- | :--- |
 | Contribution ownership chưa có commit evidence. | Nếu giảng viên yêu cầu accountability theo Git, report chưa chứng minh bằng commit hash. | Bổ sung commit IDs hoặc PR link nếu có. |
-| Offline latency không đại diện production latency. | Metrics latency hiện chứng minh logging, chưa chứng minh performance với API thật. | Chạy thêm một evaluation bằng OpenAI/Gemini/local model nếu có key/model. |
+| Bảng aggregate chính vẫn dùng offline scripted evaluation. | Offline evaluation tốt cho reproducibility, còn Gemini API run đã có trong log nhưng chưa tách thành dashboard riêng. | Nếu cần đẹp hơn, thêm bảng P50/P95 theo provider/model từ `logs/2026-06-01.log`. |
 | Live demo evidence không có trong individual report. | Có thể ảnh hưởng bonus nếu cần chứng minh demo. | Bổ sung screenshot/demo note nếu đã demo với instructor. |
 
 ---

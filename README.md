@@ -4,21 +4,36 @@ Welcome to Phase 3 of the Agentic AI course! This lab focuses on moving from a s
 
 ## 🚀 Getting Started
 
-### 1. Setup Environment
+### 1. Download the Project
+Use one of the following options to download this lab assignment.
+
+**Option A: Clone with Git**
+```bash
+git clone https://github.com/bachbach6124/Day03-Lab-assignment.git
+cd Day03-Lab-assignment
+```
+
+**Option B: Download ZIP from GitHub**
+1. Open: https://github.com/bachbach6124/Day03-Lab-assignment
+2. Click **Code** -> **Download ZIP**.
+3. Extract the ZIP file.
+4. Open the extracted `Day03-Lab-assignment` folder in your terminal or code editor.
+
+### 2. Setup Environment
 Copy the `.env.example` to `.env` and fill in your API keys:
 ```bash
 cp .env.example .env
 ```
 
-### 2. Install Dependencies
+### 3. Install Dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Directory Structure
+### 4. Directory Structure
 - `src/tools/`: Extension point for your custom tools.
 
-### 4. Run the Local Web Demo
+### 5. Run the Local Web Demo
 ```bash
 streamlit run streamlit_app.py
 ```

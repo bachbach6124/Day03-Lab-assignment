@@ -191,7 +191,17 @@ Insight: Token cost increases substantially when moving from chatbot to ReAct Ag
 | Agent v1 | 1.0ms |
 | Agent v2 | 0.2ms |
 
-These numbers come from the offline scripted provider, so they prove instrumentation works but do not represent real network LLM latency. In production, total duration would include all LLM calls plus tool execution time.
+These aggregate numbers come from the offline scripted provider, so they are used as deterministic benchmark metrics for the full test suite.
+
+The system was also tested with the real Gemini API. Evidence is available in `logs/2026-06-01.log`:
+
+| Provider | Model | Example Input | Latency | Tokens | Cost Estimate |
+| :--- | :--- | :--- | ---: | ---: | ---: |
+| Google | `gemini-2.5-flash` | "Tôi muốn đổi hàng" | 2270ms | 769 | $0.007690 |
+| Google | `gemini-2.5-flash` | valid AT102 size exchange, step 1 | 3120ms | 901 | $0.009010 |
+| Google | `gemini-2.5-flash` | valid AT102 size exchange, final step | 2524ms | 1273 | $0.012730 |
+
+Conclusion: the instrumentation captures both deterministic offline latency and real network LLM latency. For production reporting, the next step is to separate P50/P95/P99 latency by provider and model.
 
 ### 5.4 Loop Count and Termination
 
@@ -370,5 +380,5 @@ The report and repository cover the required base scoring categories. The remain
 | Missing / Weak Item | Why It Matters | Suggested Fix |
 | :--- | :--- | :--- |
 | Live demo evidence is not in the repo. | Bonus category gives up to +5. | Add screenshot, instructor sign-off note, or demo date result if completed. |
-| Offline latency is not real production latency. | Rubric asks industry metrics; offline scripted numbers are only instrumentation proof. | Add one run with OpenAI/Gemini/local model if API/model is available. |
+| Full-suite aggregate table is based on offline scripted evaluation. | It gives deterministic pass/fail comparison, while the real Gemini API run is logged separately. | Keep offline results for reproducibility and cite Gemini log evidence for real API latency. |
 | Fixed ticket ID `TK-8831`. | Fine for lab, not production-safe. | Generate unique IDs and add idempotency in future improvement. |
