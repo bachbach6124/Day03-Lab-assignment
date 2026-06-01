@@ -1,0 +1,41 @@
+[
+  {
+    "order_id": "DH-99214",
+    "customer_id": "USER_48291",
+    "product_id": "AT102",
+    "product_name": "Áo thun basic nam",
+    "current_size": "M",
+    "delivery_date": "2026-05-31",
+    "return_window_days": 7,
+    "is_delivered": true,
+    "is_returnable": true,
+    "condition": "new_or_try_on_only",
+    "reason": "Within 7-day exchange window"
+  },
+  {
+    "order_id": "DH-88201",
+    "customer_id": "USER_48291",
+    "product_id": "AT103",
+    "product_name": "Áo sơ mi trắng",
+    "current_size": "M",
+    "delivery_date": "2026-05-15",
+    "return_window_days": 7,
+    "is_delivered": true,
+    "is_returnable": true,
+    "condition": "new_or_try_on_only",
+    "reason": "Expired 7-day exchange window"
+  },
+  {
+    "order_id": "DH-77102",
+    "customer_id": "USER_48291",
+    "product_id": "AT999",
+    "product_name": "Áo giảm giá cuối mùa",
+    "current_size": "M",
+    "delivery_date": "2026-05-31",
+    "return_window_days": 7,
+    "is_delivered": true,
+    "is_returnable": false,
+    "condition": "final_sale",
+    "reason": "Final sale products are not eligible for exchange"
+  }
+]

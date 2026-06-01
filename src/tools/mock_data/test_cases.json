@@ -1,0 +1,70 @@
+[
+  {
+    "case_id": "TC01",
+    "case_name": "Đổi size hợp lệ",
+    "user_query": "Mình mới nhận cái áo thun mã AT102 hôm qua nhưng mặc bị chật quá, giờ mình muốn đổi từ size M lên size L thì làm thế nào shop?",
+    "customer_id": "USER_48291",
+    "product_id": "AT102",
+    "target_size": "L",
+    "expected_behavior": "Tạo ticket đổi hàng thành công.",
+    "expected_success": true,
+    "expected_tools": [
+      "check_order_status",
+      "check_warehouse_stock",
+      "create_return_ticket"
+    ]
+  },
+  {
+    "case_id": "TC02",
+    "case_name": "Quá hạn 7 ngày",
+    "user_query": "Mình muốn đổi áo sơ mi mã AT103 từ size M sang size L, đơn này mình nhận lâu rồi.",
+    "customer_id": "USER_48291",
+    "product_id": "AT103",
+    "target_size": "L",
+    "expected_behavior": "Từ chối đổi trả lịch sự vì quá hạn 7 ngày.",
+    "expected_success": false,
+    "expected_tools": [
+      "check_order_status"
+    ]
+  },
+  {
+    "case_id": "TC03",
+    "case_name": "Hết hàng size L",
+    "user_query": "Mình muốn đổi áo sơ mi mã AT103 sang size L, shop kiểm tra giúp còn hàng không?",
+    "customer_id": "USER_48291",
+    "product_id": "AT103",
+    "target_size": "L",
+    "expected_behavior": "Báo hết hàng size L và đề xuất chờ/restock.",
+    "expected_success": false,
+    "expected_tools": [
+      "check_order_status",
+      "check_warehouse_stock"
+    ]
+  },
+  {
+    "case_id": "TC04",
+    "case_name": "Không tìm thấy đơn hàng",
+    "user_query": "Mình muốn đổi áo mã AT404 sang size L.",
+    "customer_id": "USER_00000",
+    "product_id": "AT404",
+    "target_size": "L",
+    "expected_behavior": "Không tìm thấy đơn hàng, xin thêm thông tin.",
+    "expected_success": false,
+    "expected_tools": [
+      "check_order_status"
+    ]
+  },
+  {
+    "case_id": "TC05",
+    "case_name": "Sản phẩm không đủ điều kiện đổi trả",
+    "user_query": "Mình muốn đổi áo sale mã AT999 từ size M sang size L.",
+    "customer_id": "USER_48291",
+    "product_id": "AT999",
+    "target_size": "L",
+    "expected_behavior": "Từ chối vì sản phẩm không đủ điều kiện đổi trả.",
+    "expected_success": false,
+    "expected_tools": [
+      "check_order_status"
+    ]
+  }
+]

@@ -1,0 +1,29 @@
+[
+  {
+    "product_id": "AT102",
+    "product_name": "Áo thun basic nam",
+    "category": "tshirt",
+    "available_sizes": ["S", "M", "L", "XL"],
+    "returnable": true,
+    "exchangeable": true,
+    "policy_note": "Có thể đổi size trong vòng 7 ngày nếu sản phẩm còn nguyên trạng."
+  },
+  {
+    "product_id": "AT103",
+    "product_name": "Áo sơ mi trắng",
+    "category": "shirt",
+    "available_sizes": ["S", "M", "L", "XL"],
+    "returnable": true,
+    "exchangeable": true,
+    "policy_note": "Có thể đổi size trong vòng 7 ngày nếu sản phẩm còn nguyên trạng."
+  },
+  {
+    "product_id": "AT999",
+    "product_name": "Áo giảm giá cuối mùa",
+    "category": "final_sale",
+    "available_sizes": ["M", "L"],
+    "returnable": false,
+    "exchangeable": false,
+    "policy_note": "Sản phẩm sale cuối mùa không hỗ trợ đổi trả."
+  }
+]
