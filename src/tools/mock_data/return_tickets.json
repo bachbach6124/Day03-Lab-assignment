@@ -1,1 +1,12 @@
-[]
+[
+  {
+    "ticket_id": "TK-8831",
+    "order_id": "DH-99214",
+    "action_type": "EXCHANGE",
+    "detail": "Đổi từ size M lên size L do chật",
+    "status": "created",
+    "shipper_note": "Thu hồi hàng cũ khi giao hàng mới",
+    "estimated_process_time": "2-3 ngày",
+    "created_at": "2026-06-01T10:00:00"
+  }
+]

@@ -2,14 +2,12 @@ import argparse
 import json
 import time
 from pathlib import Path
-from typing import Any
 
+from src.agent.run_agent import build_agent
 from src.chatbot import BaselineChatbot, build_provider_from_env
 from src.tools.retail_tools import (
-    check_order_status,
-    check_warehouse_stock,
-    create_return_ticket,
     load_json,
+    save_json,
 )
 
 
@@ -18,6 +16,7 @@ LOG_DIR = ROOT_DIR / "logs"
 BASELINE_LOG = LOG_DIR / "chatbot_baseline.jsonl"
 AGENT_V1_LOG = LOG_DIR / "agent_v1.jsonl"
 AGENT_V2_LOG = LOG_DIR / "agent_v2.jsonl"
+SUMMARY_LOG = LOG_DIR / "evaluation_summary.json"
 
 
 def write_jsonl(path: Path, payload: dict) -> None:
@@ -27,7 +26,7 @@ def write_jsonl(path: Path, payload: dict) -> None:
 
 
 def clear_logs() -> None:
-    for path in [BASELINE_LOG, AGENT_V1_LOG, AGENT_V2_LOG]:
+    for path in [BASELINE_LOG, AGENT_V1_LOG, AGENT_V2_LOG, SUMMARY_LOG]:
         if path.exists():
             path.unlink()
 
@@ -59,62 +58,25 @@ def run_chatbot_case(case: dict, use_env_llm: bool = False) -> dict:
     }
 
 
-def run_tool_reference_case(case: dict, system_name: str) -> dict:
+def run_agent_case(case: dict, version: str, use_env_llm: bool = True) -> dict:
+    system_name = f"Agent {version}"
     started = time.time()
-    tools_used = []
-    observations: list[dict[str, Any]] = []
-    failure_type = None
-    tool_errors = 0
-    predicted_success = False
+    agent = build_agent(version=version, use_env_llm=use_env_llm)
+    final_answer = ""
+    provider_error = None
 
-    order_status = check_order_status(
-        {
-            "customer_id": case["customer_id"],
-            "product_id": case["product_id"],
-        }
-    )
-    tools_used.append("check_order_status")
-    observations.append({"tool": "check_order_status", "result": order_status})
+    try:
+        final_answer = agent.run(case["user_query"])
+    except Exception as exc:
+        provider_error = str(exc)
+        final_answer = f"Provider error: {exc}"
 
-    if order_status.get("error") == "order_not_found":
-        failure_type = "order_not_found"
-    elif not order_status.get("policy_valid", False):
-        failure_type = "policy_invalid"
-
-    if "check_warehouse_stock" in case["expected_tools"]:
-        stock = check_warehouse_stock(
-            {
-                "product_id": case["product_id"],
-                "size": case["target_size"],
-            }
-        )
-        tools_used.append("check_warehouse_stock")
-        observations.append({"tool": "check_warehouse_stock", "result": stock})
-        if stock.get("status") != "available":
-            failure_type = "out_of_stock"
-
-    can_create_ticket = (
-        order_status.get("policy_valid", False)
-        and observations[-1]["result"].get("status") == "available"
-        if tools_used[-1] == "check_warehouse_stock"
-        else False
-    )
-
-    if can_create_ticket and "create_return_ticket" in case["expected_tools"]:
-        ticket = create_return_ticket(
-            {
-                "order_id": order_status["order_id"],
-                "action_type": "EXCHANGE",
-                "detail": f"Đổi từ size {order_status.get('current_size')} lên size {case['target_size']} do chật",
-            }
-        )
-        tools_used.append("create_return_ticket")
-        observations.append({"tool": "create_return_ticket", "result": ticket})
-        predicted_success = "ticket_id" in ticket
-        failure_type = None if predicted_success else "ticket_creation_failed"
-
+    stats = agent.last_run_stats
+    tools_used = stats.get("tools_used", [])
+    predicted_success = "create_return_ticket" in tools_used
     success = predicted_success == case["expected_success"]
-    latency_ms = int((time.time() - started) * 1000)
+    latency_ms = stats.get("latency_ms") or int((time.time() - started) * 1000)
+    failure_type = classify_failure(case, tools_used, provider_error)
 
     return {
         "case_id": case["case_id"],
@@ -124,17 +86,31 @@ def run_tool_reference_case(case: dict, system_name: str) -> dict:
         "predicted_success": predicted_success,
         "success": success,
         "latency_ms": latency_ms,
-        "tokens": 0,
-        "cost": 0.0,
-        "loop_count": len(tools_used),
+        "tokens": stats.get("tokens", 0),
+        "cost": round(stats.get("cost", 0.0), 6),
+        "loop_count": stats.get("loop_count", len(tools_used)),
         "tools_used": tools_used,
         "expected_tools": case["expected_tools"],
         "failure_type": None if success else failure_type or "unexpected_result",
-        "parser_errors": 0,
-        "tool_errors": tool_errors,
-        "timeout_errors": 0,
-        "observations": observations,
+        "parser_errors": stats.get("parser_errors", 0),
+        "tool_errors": stats.get("tool_errors", 0),
+        "timeout_errors": stats.get("timeout_errors", 0),
+        "final_answer": final_answer,
+        "provider_error": provider_error,
     }
+
+
+def classify_failure(case: dict, tools_used: list[str], provider_error: str | None = None) -> str | None:
+    if provider_error:
+        return "provider_error"
+    if "create_return_ticket" in tools_used and not case["expected_success"]:
+        return "created_ticket_for_negative_case"
+    if case["expected_success"] and "create_return_ticket" not in tools_used:
+        return "ticket_not_created"
+    missing_tools = [tool for tool in case["expected_tools"] if tool not in tools_used]
+    if missing_tools:
+        return "missing_expected_tools"
+    return None
 
 
 def estimate_cost(total_tokens: int) -> float:
@@ -177,7 +153,12 @@ def main() -> None:
     parser.add_argument(
         "--use-env-llm",
         action="store_true",
-        help="Use DEFAULT_PROVIDER for chatbot baseline.",
+        help="Use DEFAULT_PROVIDER for chatbot baseline too. Agents use DEFAULT_PROVIDER by default.",
+    )
+    parser.add_argument(
+        "--offline-agents",
+        action="store_true",
+        help="Use the reliable offline scripted provider for Agent v1/v2 instead of DEFAULT_PROVIDER.",
     )
     parser.add_argument(
         "--keep-logs",
@@ -190,23 +171,35 @@ def main() -> None:
         clear_logs()
 
     cases = load_json("test_cases.json")
+    original_tickets = load_json("return_tickets.json")
     results = []
 
-    for case in cases:
-        baseline_result = run_chatbot_case(case, use_env_llm=args.use_env_llm)
-        results.append(baseline_result)
-        write_jsonl(BASELINE_LOG, baseline_result)
+    try:
+        for case in cases:
+            baseline_result = run_chatbot_case(case, use_env_llm=args.use_env_llm)
+            results.append(baseline_result)
+            write_jsonl(BASELINE_LOG, baseline_result)
 
-        agent_v1_result = run_tool_reference_case(case, "Agent v1")
-        results.append(agent_v1_result)
-        write_jsonl(AGENT_V1_LOG, agent_v1_result)
+            agent_v1_result = run_agent_case(case, "v1", use_env_llm=not args.offline_agents)
+            results.append(agent_v1_result)
+            write_jsonl(AGENT_V1_LOG, agent_v1_result)
 
-        agent_v2_result = run_tool_reference_case(case, "Agent v2")
-        results.append(agent_v2_result)
-        write_jsonl(AGENT_V2_LOG, agent_v2_result)
+            agent_v2_result = run_agent_case(case, "v2", use_env_llm=not args.offline_agents)
+            results.append(agent_v2_result)
+            write_jsonl(AGENT_V2_LOG, agent_v2_result)
+    finally:
+        save_json("return_tickets.json", original_tickets)
 
     summary = summarize(results)
+    write_summary(summary)
     print(json.dumps(summary, ensure_ascii=False, indent=2))
+
+
+def write_summary(summary: dict) -> None:
+    SUMMARY_LOG.parent.mkdir(parents=True, exist_ok=True)
+    with SUMMARY_LOG.open("w", encoding="utf-8") as file:
+        json.dump(summary, file, ensure_ascii=False, indent=2)
+        file.write("\n")
 
 
 if __name__ == "__main__":

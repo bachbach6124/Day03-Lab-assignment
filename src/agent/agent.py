@@ -11,22 +11,31 @@ class ReActAgent:
     A ReAct-style Agent that follows the Thought-Action-Observation loop.
     """
     
-    def __init__(self, llm: LLMProvider, tools: List[Dict[str, Any]], max_steps: int = 5):
+    def __init__(
+        self,
+        llm: LLMProvider,
+        tools: List[Dict[str, Any]],
+        max_steps: int = 5,
+        version: str = "v1",
+    ):
         self.llm = llm
         self.tools = tools
         self.max_steps = max_steps
+        self.version = version
         self.history = []
+        self.last_run_stats = self._new_run_stats()
 
     def get_system_prompt(self) -> str:
         tool_descriptions = "\n".join(
             [f"- {tool['name']}: {tool['description']}" for tool in self.tools]
         )
-        return build_react_prompt(tool_descriptions)
+        return build_react_prompt(tool_descriptions, version=self.version)
 
     def run(self, user_input: str) -> str:
         """
         Run the ReAct loop until the model produces a final answer or max_steps is reached.
         """
+        self.last_run_stats = self._new_run_stats()
         logger.log_event(
             "AGENT_START",
             {
@@ -34,6 +43,7 @@ class ReActAgent:
                 "model": self.llm.model_name,
                 "max_steps": self.max_steps,
                 "tools": self._available_tool_names(),
+                "version": self.version,
             },
         )
         
@@ -45,6 +55,10 @@ class ReActAgent:
                 system_prompt=self.get_system_prompt(),
             )
             self._track_llm_metric(result)
+            usage = result.get("usage", {})
+            self.last_run_stats["tokens"] += usage.get("total_tokens", 0)
+            self.last_run_stats["cost"] += self._estimate_cost(usage.get("total_tokens", 0))
+            self.last_run_stats["latency_ms"] += result.get("latency_ms", 0)
 
             content = result.get("content", "") or ""
             self.history.append({"step": step, "llm_response": content})
@@ -65,10 +79,13 @@ class ReActAgent:
                     "AGENT_END",
                     {"status": "success", "steps": step, "final_answer": final_answer},
                 )
+                self.last_run_stats["loop_count"] = step
+                self.last_run_stats["final_answer"] = final_answer
                 return final_answer
 
             action = self._parse_action(content)
             if not action:
+                self.last_run_stats["parser_errors"] += 1
                 observation = {
                     "error": "PARSER_ERROR",
                     "message": "Could not parse Action. Use: Action: tool_name({\"key\": \"value\"})",
@@ -93,6 +110,9 @@ class ReActAgent:
                 },
             )
             observation = self._execute_tool(action["tool_name"], action["args"])
+            self.last_run_stats["tools_used"].append(action["tool_name"])
+            if observation.get("error") in {"TOOL_EXECUTION_ERROR", "TOOL_NOT_FOUND"}:
+                self.last_run_stats["tool_errors"] += 1
             logger.log_event(
                 "TOOL_OBSERVATION",
                 {
@@ -115,6 +135,9 @@ class ReActAgent:
             "TIMEOUT",
             {"max_steps": self.max_steps, "message": message},
         )
+        self.last_run_stats["timeout_errors"] += 1
+        self.last_run_stats["loop_count"] = self.max_steps
+        self.last_run_stats["final_answer"] = message
         logger.log_event(
             "AGENT_END",
             {"status": "timeout", "steps": self.max_steps},
@@ -225,3 +248,19 @@ class ReActAgent:
 
     def _strip_code_fences(self, content: str) -> str:
         return re.sub(r"```(?:json|python|text)?\s*|\s*```", "", content, flags=re.IGNORECASE)
+
+    def _new_run_stats(self) -> Dict[str, Any]:
+        return {
+            "tokens": 0,
+            "cost": 0.0,
+            "latency_ms": 0,
+            "loop_count": 0,
+            "tools_used": [],
+            "parser_errors": 0,
+            "tool_errors": 0,
+            "timeout_errors": 0,
+            "final_answer": "",
+        }
+
+    def _estimate_cost(self, total_tokens: int) -> float:
+        return round((total_tokens / 1000) * 0.01, 6)

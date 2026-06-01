@@ -66,11 +66,14 @@ def build_provider_from_env() -> Optional[Any]:
             api_key=os.getenv("OPENAI_API_KEY"),
         )
 
-    if provider == "gemini":
+    if provider in {"gemini", "google"}:
         from src.core.gemini_provider import GeminiProvider
 
         return GeminiProvider(
-            model_name=os.getenv("GEMINI_MODEL", "gemini-1.5-flash"),
+            model_name=os.getenv(
+                "GEMINI_MODEL",
+                os.getenv("DEFAULT_MODEL", "gemini-1.5-flash"),
+            ),
             api_key=os.getenv("GEMINI_API_KEY"),
         )
 

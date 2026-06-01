@@ -11,14 +11,19 @@ DEMO_TODAY = date(2026, 6, 1)
 def load_json(file_name: str) -> Any:
     path = DATA_DIR / file_name
     with path.open("r", encoding="utf-8") as file:
-        return json.load(file)
+        content = file.read().strip()
+        if not content:
+            return []
+        return json.loads(content)
 
 
 def save_json(file_name: str, data: Any) -> None:
     path = DATA_DIR / file_name
-    with path.open("w", encoding="utf-8") as file:
+    temp_path = path.with_suffix(f"{path.suffix}.tmp")
+    with temp_path.open("w", encoding="utf-8") as file:
         json.dump(data, file, ensure_ascii=False, indent=2)
         file.write("\n")
+    temp_path.replace(path)
 
 
 def check_order_status(args: dict) -> dict:
